@@ -43,12 +43,26 @@ RIGHT_EYE_BOTTOM = 145
 LEFT_IRIS_INDICES = [468, 469, 470, 471, 472]
 RIGHT_IRIS_INDICES = [473, 474, 475, 476, 477]
 
-# Gaze deviation thresholds (normalised units from baseline)
-HORIZONTAL_THRESHOLD = 0.35
-VERTICAL_THRESHOLD = 0.30
+# Gaze deviation thresholds (normalised units from baseline).
+#
+# Offset is iris-centre displacement / eye-box dimensions, averaged across
+# both eyes. Empirically, MediaPipe's iris landmarks don't travel as far as
+# you'd expect with pure eye motion (model bias toward the eye centre),
+# so practical eye-only deviation peaks around 0.10-0.20 horizontally and
+# 0.06-0.12 vertically. Thresholds tuned to fire on a deliberate sideways
+# glance (e.g. peeking at a phone) while ignoring reading micro-saccades.
+#
+# Gaze violations are also hard-gated in cv_pipeline.py so that they only
+# count when the head is roughly forward (|yaw|<12, |pitch|<12) — that
+# avoids the eye-width-denominator artifact that makes deviation values
+# explode during head turns.
+HORIZONTAL_THRESHOLD = 0.10
+VERTICAL_THRESHOLD = 0.07
 
-# Minimum sustained deviation duration before logging a violation (seconds)
-SUSTAINED_DURATION = 2.0
+# Minimum sustained deviation duration before logging a violation (seconds).
+# Shortened from 2.0 so a 1-second glance at a side phone is caught,
+# while blinks (~0.2s) and saccades (~0.1s) still get filtered out.
+SUSTAINED_DURATION = 1.0
 
 
 class GazeEstimator:

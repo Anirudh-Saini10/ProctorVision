@@ -37,8 +37,10 @@ class WebSocketHandler:
     Frames are processed asynchronously, and results are streamed back.
     """
 
-    def __init__(self):
+    def __init__(self, session_store=None):
         self.active_sessions = {}  # {websocket_id: CVPipeline}
+        # Shared dict (session_id -> summary) used by the /api/report endpoint.
+        self.session_store = session_store if session_store is not None else {}
 
     async def handle_connection(self, websocket: WebSocket):
         """
@@ -234,6 +236,11 @@ class WebSocketHandler:
         """End the current proctoring session."""
         summary = pipeline.end_session()
         print(f"  [WS] Session ended. Risk score: {summary['risk_score']}")
+
+        # Persist summary so /api/report/{session_id} can serve a PDF.
+        sid = summary.get("session_id")
+        if sid:
+            self.session_store[sid] = summary
 
         await self._send(websocket, {
             "type": "session_ended",

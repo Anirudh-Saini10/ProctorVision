@@ -208,27 +208,53 @@ class CVPipeline:
 
             # --- Detection phase (after calibration) ---
             elif self.calibration.is_complete:
-                # Gaze tracking (every frame)
-                if has_iris:
-                    gaze_result = self.gaze.estimate(landmarks, w, h)
-                    if gaze_result["is_violation"]:
-                        v = self.violation_logger.log_violation(
-                            "gaze_deviation",
-                            confidence=gaze_result["confidence"],
-                            metadata={"direction": gaze_result["direction"],
-                                      "duration": gaze_result["violation_duration"]},
-                        )
-                        if v:
-                            new_violations.append(v.to_dict())
-
-                # Head pose (every frame)
+                # Run head pose first — it gates whether gaze data is trustworthy.
                 head_pose_result = self.head_pose.estimate(landmarks, w, h)
+
+                # When the head is turned beyond ~15 degrees, eye-width
+                # denominators collapse and iris-offset values become
+                # unreliable (they explode to >1.0 in profile view).
+                # In that regime we let head_pose own the violation and
+                # skip gaze entirely.
+                #
+                # Gate on baseline-RELATIVE deviation (the head_pose
+                # estimator subtracts the user's calibrated neutral pose),
+                # not raw absolute angles. This is critical: a user's
+                # natural sitting posture often has +15-25 degrees of
+                # absolute pitch due to camera position, but their pose
+                # deviation from baseline is near zero — the head is
+                # forward for them.
+                hp_dev = head_pose_result.get("deviation") if head_pose_result else None
+                head_is_forward = False
+                if hp_dev is not None:
+                    pitch_dev = float(hp_dev[0])
+                    yaw_dev = float(hp_dev[1])
+                    head_is_forward = abs(yaw_dev) < 15.0 and abs(pitch_dev) < 15.0
+
+                # Compute gaze only when head is forward — keeps the
+                # gaze signal clean and removes profile-view artifacts.
+                if has_iris and head_is_forward:
+                    gaze_result = self.gaze.estimate(landmarks, w, h)
+                else:
+                    # Reset the sustained-deviation timer so we don't carry
+                    # state across a head turn.
+                    self.gaze.deviation_start_time = None
+
                 if head_pose_result["is_violation"]:
                     v = self.violation_logger.log_violation(
                         "head_pose",
                         confidence=head_pose_result["confidence"],
                         metadata={"direction": head_pose_result["direction"],
                                   "duration": head_pose_result["violation_duration"]},
+                    )
+                    if v:
+                        new_violations.append(v.to_dict())
+                elif has_iris and gaze_result and gaze_result["is_violation"]:
+                    v = self.violation_logger.log_violation(
+                        "gaze_deviation",
+                        confidence=gaze_result["confidence"],
+                        metadata={"direction": gaze_result["direction"],
+                                  "duration": gaze_result["violation_duration"]},
                     )
                     if v:
                         new_violations.append(v.to_dict())

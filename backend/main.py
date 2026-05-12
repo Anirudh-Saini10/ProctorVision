@@ -48,8 +48,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- WebSocket handler (shared instance) ---
-ws_handler = WebSocketHandler()
+# --- WebSocket handler (shared instance, shares session_store with /api/report) ---
+ws_handler = WebSocketHandler(session_store=session_store)
 
 
 # --- Routes ---
