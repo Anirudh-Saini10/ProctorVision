@@ -4,12 +4,15 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import { SessionProvider } from './state/SessionContext.jsx'
+import { WebSocketProvider } from './state/WebSocketContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <SessionProvider>
-        <App />
+        <WebSocketProvider>
+          <App />
+        </WebSocketProvider>
       </SessionProvider>
     </BrowserRouter>
   </StrictMode>,

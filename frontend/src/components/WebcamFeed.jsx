@@ -1,19 +1,28 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 /**
  * Self-contained webcam component. Mirrored video, optional overlay slot,
  * minimal UI chrome. Releases the stream on unmount.
+ *
+ * Exposes the underlying <video> element via ref.current.video for callers
+ * that need to capture frames (frame streamer).
  */
-export default function WebcamFeed({
-  className = '',
-  mirrored = true,
-  children,
-  onReady,
-  onError,
-}) {
+const WebcamFeed = forwardRef(function WebcamFeed(
+  { className = '', mirrored = true, children, onReady, onError },
+  ref
+) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const [state, setState] = useState('init') // init | streaming | error
+
+  useImperativeHandle(ref, () => ({
+    get video() {
+      return videoRef.current
+    },
+    get stream() {
+      return streamRef.current
+    },
+  }))
 
   useEffect(() => {
     let cancelled = false
@@ -69,4 +78,6 @@ export default function WebcamFeed({
       {children}
     </div>
   )
-}
+})
+
+export default WebcamFeed

@@ -4,11 +4,22 @@ import { Check, FileDown } from 'lucide-react'
 import PageShell from '../components/PageShell.jsx'
 import RiskGauge from '../components/RiskGauge.jsx'
 import { useSession } from '../state/SessionContext.jsx'
+import { useWS } from '../state/WebSocketContext.jsx'
+import { REPORT_URL } from '../lib/config.js'
 
 export default function Done() {
   const { name, code, reset } = useSession()
-  // mock final risk
-  const finalRisk = 22
+  const { summary, sessionId, riskScore } = useWS()
+
+  const finalRisk = summary?.risk_score ?? riskScore ?? 0
+  const violationCount = summary?.violations?.length ?? 0
+  const sid = summary?.session_id ?? sessionId
+  const verdict =
+    finalRisk >= 70
+      ? 'High concern. Review recommended.'
+      : finalRisk >= 35
+      ? 'Moderate signal. Some violations logged.'
+      : 'Within expected range. Few or no violations.'
 
   return (
     <PageShell>
@@ -40,8 +51,9 @@ export default function Done() {
         >
           Your session{' '}
           <span className="font-mono text-text-primary">{code}</span> has been
-          recorded and analyzed. A summary has been forwarded to your proctor.
-          You may close this window.
+          recorded and analyzed. {violationCount} event
+          {violationCount === 1 ? '' : 's'} logged. A summary has been forwarded
+          to your proctor. You may close this window.
         </motion.p>
 
         <motion.div
@@ -53,9 +65,7 @@ export default function Done() {
           <RiskGauge value={finalRisk} size={120} label="Final" />
           <div className="min-w-0 flex-1">
             <p className="label">Outcome</p>
-            <p className="mt-1 text-[15px] text-text-primary">
-              No critical violations detected.
-            </p>
+            <p className="mt-1 text-[15px] text-text-primary">{verdict}</p>
             <p className="mt-2 text-[12px] text-text-muted">
               The proctor will review the full timeline and finalize your result.
             </p>
@@ -68,14 +78,26 @@ export default function Done() {
           transition={{ duration: 0.6, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
           className="mt-8 flex flex-wrap gap-3"
         >
-          <Link to={`/report/${code}`} className="btn-primary group">
-            <FileDown size={14} strokeWidth={2} />
-            Download my summary
-          </Link>
+          {sid ? (
+            <a href={REPORT_URL(sid)} className="btn-primary group" download>
+              <FileDown size={14} strokeWidth={2} />
+              Download my summary (PDF)
+            </a>
+          ) : (
+            <button type="button" disabled className="btn-primary opacity-50">
+              <FileDown size={14} strokeWidth={2} /> Download my summary
+            </button>
+          )}
           <Link to="/" onClick={reset} className="btn-secondary">
             Back to home
           </Link>
         </motion.div>
+
+        {sid && (
+          <p className="mt-6 font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+            session id · {sid}
+          </p>
+        )}
       </section>
     </PageShell>
   )

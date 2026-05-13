@@ -4,12 +4,16 @@ import { motion, AnimatePresence } from 'framer-motion'
 import PageShell from '../components/PageShell.jsx'
 import WebcamFeed from '../components/WebcamFeed.jsx'
 import { useSession } from '../state/SessionContext.jsx'
+import { useWS } from '../state/WebSocketContext.jsx'
+import useFrameStreamer from '../hooks/useFrameStreamer.js'
 
 /**
- * Calibration ritual:
- * 1. Look at five anchor points (center, TL, TR, BR, BL) — animated reticle moves.
- * 2. Hold neutral head pose for 3s.
- * 3. Done.
+ * Real-backend calibration:
+ *  1. Open WS, send `session_start`.
+ *  2. Stream frames at 5 FPS while the visual reticle dance plays.
+ *  3. Backend runs its 10s calibration internally and emits
+ *     `calibration_progress` updates and finally `calibration_complete`.
+ *  4. On `calibration_complete`, navigate to /student/exam.
  */
 const STEPS = [
   { id: 'p1', label: 'Look at the dot · center', x: 50, y: 50 },
@@ -20,70 +24,99 @@ const STEPS = [
   { id: 'neutral', label: 'Hold neutral head pose · look forward', x: 50, y: 50, hold: true },
 ]
 
-const STEP_MS = 1800
-const HOLD_MS = 3000
-
 export default function Calibrate() {
   const navigate = useNavigate()
   const { setCalibrated } = useSession()
+  const {
+    status,
+    sessionId,
+    calibration,
+    calibrationComplete,
+    startSession,
+    sendFrame,
+  } = useWS()
+
+  const camRef = useRef(null)
   const [stepIdx, setStepIdx] = useState(0)
-  const [elapsed, setElapsed] = useState(0)
-  const startedAt = useRef(performance.now())
+  const [streamActive, setStreamActive] = useState(false)
 
-  const step = STEPS[stepIdx]
-  const duration = step?.hold ? HOLD_MS : STEP_MS
-
-  // advance steps
+  // Kick off WS + session_start as soon as page mounts
   useEffect(() => {
-    const id = setInterval(() => {
-      setStepIdx((i) => Math.min(i + 1, STEPS.length))
-    }, duration)
-    return () => clearInterval(id)
-  }, [duration, stepIdx])
+    startSession()
+  }, [startSession])
 
-  // smooth progress
+  // Once session is started, begin streaming frames
   useEffect(() => {
-    let raf
-    const tick = () => {
-      const t = performance.now() - startedAt.current
-      setElapsed(t)
-      raf = requestAnimationFrame(tick)
+    if (sessionId) setStreamActive(true)
+  }, [sessionId])
+
+  // Visual reticle progression — 5 anchor points evenly distributed across the
+  // 10s calibration window, then the neutral hold for the remainder.
+  useEffect(() => {
+    if (!sessionId) return
+    const totalMs = 10_000
+    const stepMs = (totalMs - 3000) / 5 // last 3s reserved for neutral hold
+    let cancelled = false
+    const advance = (i) => {
+      if (cancelled) return
+      setStepIdx(i)
+      if (i < STEPS.length - 1) {
+        setTimeout(() => advance(i + 1), i === STEPS.length - 2 ? stepMs : stepMs)
+      }
     }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [])
+    advance(0)
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
 
-  // when finished
+  // Stream frames while calibration is active
+  useFrameStreamer({
+    getVideo: () => camRef.current?.video ?? null,
+    active: streamActive && !calibrationComplete,
+    fps: 5,
+    onFrame: sendFrame,
+  })
+
+  // Navigate forward once backend reports calibration complete
   useEffect(() => {
-    if (stepIdx >= STEPS.length) {
+    if (calibrationComplete) {
       setCalibrated(true)
-      const t = setTimeout(() => navigate('/student/exam', { replace: true }), 900)
+      const t = setTimeout(() => navigate('/student/exam', { replace: true }), 700)
       return () => clearTimeout(t)
     }
-  }, [stepIdx, navigate, setCalibrated])
+  }, [calibrationComplete, navigate, setCalibrated])
 
-  const total = STEPS.reduce((acc, s) => acc + (s.hold ? HOLD_MS : STEP_MS), 0)
-  const pct = Math.min(elapsed / total, 1)
-  const done = stepIdx >= STEPS.length
+  const step = STEPS[Math.min(stepIdx, STEPS.length - 1)]
+  const pct = calibration?.progress != null ? calibration.progress : 0
+  const remaining = calibration?.remaining
+  const wsLabel =
+    status === 'open'
+      ? sessionId
+        ? 'session active'
+        : 'connecting session'
+      : status === 'connecting'
+      ? 'opening socket'
+      : status === 'error'
+      ? 'connection error'
+      : 'idle'
 
   return (
     <PageShell>
       <section className="mx-auto flex max-w-6xl flex-col items-center px-6 py-12">
         <p className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
-          calibration · step {Math.min(stepIdx + 1, STEPS.length)} / {STEPS.length}
+          calibration · {wsLabel}
         </p>
         <h1 className="mt-3 text-2xl font-medium tracking-tightest text-text-primary">
-          {done ? 'Calibration complete.' : step.label}
+          {calibrationComplete ? 'Calibration complete.' : step.label}
         </h1>
 
         {/* stage */}
         <div className="relative mt-8 aspect-[16/9] w-full overflow-hidden rounded border border-border bg-surface-1">
-          {/* webcam pinned bottom-right, small */}
           <div className="absolute bottom-4 right-4 z-20 h-28 w-40 overflow-hidden rounded border border-border-strong">
-            <WebcamFeed />
+            <WebcamFeed ref={camRef} />
           </div>
 
-          {/* faint grid */}
           <div
             aria-hidden
             className="absolute inset-0 opacity-30"
@@ -94,9 +127,8 @@ export default function Calibrate() {
             }}
           />
 
-          {/* moving reticle */}
           <AnimatePresence>
-            {!done && (
+            {!calibrationComplete && (
               <motion.div
                 key={step.id}
                 initial={{ opacity: 0, scale: 0.8 }}
@@ -115,9 +147,8 @@ export default function Calibrate() {
             )}
           </AnimatePresence>
 
-          {/* finish flash */}
           <AnimatePresence>
-            {done && (
+            {calibrationComplete && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -133,7 +164,6 @@ export default function Calibrate() {
           </AnimatePresence>
         </div>
 
-        {/* progress bar */}
         <div className="mt-6 w-full">
           <div className="h-px w-full bg-border">
             <motion.div
@@ -144,7 +174,10 @@ export default function Calibrate() {
           </div>
           <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
             <span>baseline capture</span>
-            <span>{Math.round(pct * 100)}%</span>
+            <span>
+              {Math.round(pct * 100)}%
+              {remaining != null && ` · ${remaining.toFixed(1)}s left`}
+            </span>
           </div>
         </div>
 
