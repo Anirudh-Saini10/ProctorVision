@@ -71,6 +71,14 @@ function App() {
             </RequireSession>
           }
         />
+        <Route
+          path="/proctor/rules"
+          element={
+            <RequireSession role="proctor">
+              <ProctorRules />
+            </RequireSession>
+          }
+        />
 
         {/* Reports — accessible to anyone with the link */}
         <Route path="/report" element={<Report />} />
