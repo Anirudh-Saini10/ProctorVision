@@ -110,6 +110,19 @@ async def websocket_endpoint(websocket: WebSocket):
     await ws_handler.handle_connection(websocket)
 
 
+@app.websocket("/ws/proctor")
+async def proctor_websocket(websocket: WebSocket):
+    """WebSocket endpoint for proctor console — subscribes to a live session
+    and receives snapshots, violations, and risk-score updates."""
+    await ws_handler.handle_proctor_connection(websocket)
+
+
+@app.get("/api/sessions")
+async def list_sessions():
+    """List currently live proctoring sessions for the proctor dashboard."""
+    return JSONResponse({"sessions": ws_handler.list_active_sessions()})
+
+
 # --- Startup event ---
 
 @app.on_event("startup")

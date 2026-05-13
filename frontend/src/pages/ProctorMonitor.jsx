@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Flag, Pause, StopCircle } from 'lucide-react'
 import PageShell from '../components/PageShell.jsx'
 import RiskGauge from '../components/RiskGauge.jsx'
 import LiveDot from '../components/LiveDot.jsx'
-import { getSession, getEvents } from '../lib/mockSessions.js'
+import useProctorSocket from '../hooks/useProctorSocket.js'
+import { getSession as getMockSession, getEvents as getMockEvents } from '../lib/mockSessions.js'
 
 const SEV_TONE = {
   low: 'text-risk-low',
@@ -20,33 +21,57 @@ const SEV_BG = {
 
 export default function ProctorMonitor() {
   const { id } = useParams()
-  const session = useMemo(() => getSession(id), [id])
-  const baseEvents = useMemo(() => getEvents(id ?? 'X', 18), [id])
-  const [risk, setRisk] = useState(session?.risk ?? 20)
-  const [stream, setStream] = useState(baseEvents.slice(0, 6).reverse())
-  const [snapshotKey, setSnapshotKey] = useState(0)
+  const {
+    status,
+    activeSessions,
+    subscribed,
+    latestSnapshot,
+    liveRisk,
+    events: liveEvents,
+    subscribe,
+  } = useProctorSocket()
 
-  // simulate snapshot refresh + new events for live sessions
+  // is this id a real, live backend session? subscribe when WS opens
+  const isLive = useMemo(
+    () => activeSessions.some((s) => s.session_id === id),
+    [activeSessions, id]
+  )
   useEffect(() => {
-    if (!session || session.status !== 'live') return
-    const id1 = setInterval(() => setSnapshotKey((k) => k + 1), 1500)
-    const id2 = setInterval(() => {
-      setRisk((r) => Math.max(2, Math.min(95, r + (Math.random() - 0.45) * 9)))
-    }, 1200)
-    const id3 = setInterval(() => {
-      const next = baseEvents[Math.floor(Math.random() * baseEvents.length)]
-      const ts = new Date()
-      const stamp = `${String(ts.getHours()).padStart(2, '0')}:${String(ts.getMinutes()).padStart(2, '0')}:${String(ts.getSeconds()).padStart(2, '0')}`
-      setStream((s) => [{ ...next, id: crypto.randomUUID(), stamp }, ...s].slice(0, 30))
-    }, 3500)
-    return () => {
-      clearInterval(id1)
-      clearInterval(id2)
-      clearInterval(id3)
-    }
-  }, [session, baseEvents])
+    if (isLive && status === 'open') subscribe(id)
+  }, [isLive, status, id, subscribe])
 
-  if (!session) {
+  // Mock fallback when not live
+  const mock = useMemo(() => (isLive ? null : getMockSession(id)), [id, isLive])
+  const mockEvents = useMemo(
+    () => (isLive ? null : getMockEvents(id ?? 'X', 18)),
+    [id, isLive]
+  )
+
+  const candidate = isLive
+    ? subscribed?.candidate ?? activeSessions.find((s) => s.session_id === id)?.candidate ?? '...'
+    : mock?.candidate
+  const strictness = isLive
+    ? subscribed?.strictness ?? '—'
+    : mock?.strictness
+  const durationMin = isLive
+    ? Math.round(
+        (activeSessions.find((s) => s.session_id === id)?.duration_sec ?? 0) /
+          60
+      )
+    : mock?.durationMin ?? 0
+
+  const risk = isLive ? liveRisk : mock?.risk ?? 0
+  const events = isLive
+    ? liveEvents
+    : (mockEvents ?? []).map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        severity: e.severity,
+        detail: e.detail,
+        stamp: `+${Math.floor(e.atSec / 60)}:${String(e.atSec % 60).padStart(2, '0')}`,
+      }))
+
+  if (!isLive && !mock) {
     return (
       <PageShell>
         <section className="mx-auto max-w-3xl px-6 py-20 text-center">
@@ -62,12 +87,9 @@ export default function ProctorMonitor() {
     )
   }
 
-  const live = session.status === 'live'
-
   return (
     <PageShell>
       <section className="mx-auto max-w-7xl px-6 pt-10 pb-16">
-        {/* header */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Link
@@ -77,14 +99,19 @@ export default function ProctorMonitor() {
               <ArrowLeft size={11} strokeWidth={2} /> sessions
             </Link>
             <h1 className="mt-2 text-2xl font-medium tracking-tightest text-text-primary">
-              {session.candidate}
+              {candidate}
+              {!isLive && (
+                <span className="ml-2 font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+                  demo
+                </span>
+              )}
             </h1>
             <div className="mt-1 flex items-center gap-3 font-mono text-[11px] text-text-muted">
-              <span className="tracking-wider">{session.id}</span>
+              <span className="tracking-wider">{id?.slice(0, 12)}</span>
               <span>·</span>
-              <span>{session.durationMin}m elapsed</span>
+              <span>{durationMin}m elapsed</span>
               <span>·</span>
-              <span>strictness {session.strictness}</span>
+              <span>strictness {strictness}</span>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -104,7 +131,6 @@ export default function ProctorMonitor() {
         </div>
 
         <div className="mt-8 grid grid-cols-12 gap-6">
-          {/* snapshot pane */}
           <div className="col-span-12 lg:col-span-8">
             <motion.div
               initial={{ opacity: 0, y: 8 }}
@@ -114,10 +140,11 @@ export default function ProctorMonitor() {
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
                 <div className="flex items-center gap-3">
-                  {live && <LiveDot variant="online" label="snapshot live" />}
-                  {!live && (
+                  {isLive ? (
+                    <LiveDot variant="online" label="snapshot live" />
+                  ) : (
                     <span className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
-                      replay
+                      replay (mock)
                     </span>
                   )}
                 </div>
@@ -126,13 +153,28 @@ export default function ProctorMonitor() {
                 </span>
               </div>
               <div className="relative aspect-video">
-                <SnapshotMock candidate={session.candidate} tick={snapshotKey} />
+                {isLive ? (
+                  <SnapshotLive snapshot={latestSnapshot} candidate={candidate} />
+                ) : (
+                  <SnapshotMock candidate={candidate} />
+                )}
               </div>
-              <Timeline events={baseEvents} duration={session.durationMin * 60} />
+              <Timeline
+                events={
+                  isLive
+                    ? liveEvents.map((e, i) => ({
+                        id: e.id,
+                        atSec: i * 13 + 5,
+                        severity: e.severity,
+                        kind: e.kind,
+                      }))
+                    : (mockEvents ?? [])
+                }
+                duration={Math.max(60, durationMin * 60)}
+              />
             </motion.div>
           </div>
 
-          {/* right rail: gauge + event stream */}
           <aside className="col-span-12 flex flex-col gap-4 lg:col-span-4">
             <motion.div
               initial={{ opacity: 0, y: 8 }}
@@ -164,12 +206,12 @@ export default function ProctorMonitor() {
                   event stream
                 </span>
                 <span className="font-mono text-[10px] text-text-muted">
-                  {stream.length} events
+                  {events.length} events
                 </span>
               </div>
               <ul className="max-h-[420px] divide-y divide-border overflow-y-auto">
                 <AnimatePresence initial={false}>
-                  {stream.map((e) => (
+                  {events.map((e) => (
                     <motion.li
                       key={e.id}
                       layout
@@ -180,22 +222,33 @@ export default function ProctorMonitor() {
                       className="flex items-start gap-3 px-4 py-2.5"
                     >
                       <span
-                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEV_BG[e.severity]}`}
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEV_BG[e.severity] ?? SEV_BG.medium}`}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[12px] text-text-primary">{e.kind}</span>
+                          <span className="text-[12px] text-text-primary">
+                            {e.kind}
+                          </span>
                           <span className="font-mono text-[10px] text-text-muted">
-                            {e.stamp ?? `+${e.atSec}s`}
+                            {e.stamp}
                           </span>
                         </div>
-                        <p className={`mt-0.5 font-mono text-[10px] uppercase tracking-eyebrow ${SEV_TONE[e.severity]}`}>
-                          {e.severity} · {e.detail}
-                        </p>
+                        {e.detail && (
+                          <p
+                            className={`mt-0.5 font-mono text-[10px] uppercase tracking-eyebrow ${SEV_TONE[e.severity] ?? SEV_TONE.medium}`}
+                          >
+                            {e.severity} · {e.detail}
+                          </p>
+                        )}
                       </div>
                     </motion.li>
                   ))}
                 </AnimatePresence>
+                {events.length === 0 && (
+                  <li className="px-4 py-10 text-center font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+                    awaiting events
+                  </li>
+                )}
               </ul>
             </motion.div>
           </aside>
@@ -205,19 +258,46 @@ export default function ProctorMonitor() {
   )
 }
 
-function SnapshotMock({ candidate, tick }) {
-  // pseudo-random subtle hue per candidate so each session looks distinct
+function SnapshotLive({ snapshot, candidate }) {
+  if (!snapshot) {
+    return (
+      <div className="absolute inset-0 grid place-items-center font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+        awaiting first frame…
+      </div>
+    )
+  }
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      <img
+        src={`data:image/jpeg;base64,${snapshot.data}`}
+        alt={`${candidate} live snapshot`}
+        className="h-full w-full -scale-x-100 object-cover"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-15 mix-blend-overlay"
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(0deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 3px)',
+        }}
+      />
+      <div className="absolute bottom-3 left-3 font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+        frame {String(snapshot.frame).padStart(4, '0')}
+        {!snapshot.face_detected && (
+          <span className="ml-2 text-risk-medium">· no face</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SnapshotMock({ candidate = '?' }) {
   const seed = candidate.charCodeAt(0)
   const hueA = (seed * 13) % 360
   const hueB = (seed * 29) % 360
   return (
     <div className="absolute inset-0 grid place-items-center overflow-hidden">
-      {/* placeholder "video" — animated gradient + scanlines so it feels live */}
-      <motion.div
-        key={tick}
-        initial={{ opacity: 0.85 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.6 }}
+      <div
         className="absolute inset-0"
         style={{
           background: `radial-gradient(circle at 50% 40%, hsl(${hueA},20%,18%) 0%, hsl(${hueB},15%,8%) 70%)`,
@@ -240,7 +320,7 @@ function SnapshotMock({ candidate, tick }) {
             .slice(0, 2)}
         </div>
         <p className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
-          snapshot · frame {tick.toString().padStart(4, '0')}
+          mock snapshot · no live session
         </p>
       </div>
     </div>
@@ -264,7 +344,7 @@ function Timeline({ events, duration }) {
               className="group absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
               style={{ left: `${left}%` }}
             >
-              <div className={`h-2 w-2 rotate-45 ${SEV_BG[e.severity]}`} />
+              <div className={`h-2 w-2 rotate-45 ${SEV_BG[e.severity] ?? SEV_BG.medium}`} />
               <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded border border-border bg-surface-3 px-2 py-1 font-mono text-[10px] uppercase tracking-eyebrow text-text-primary group-hover:block">
                 {e.kind} · {e.severity}
               </div>

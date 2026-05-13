@@ -133,10 +133,16 @@ export function WebSocketProvider({ children }) {
     }
   }, [])
 
-  const startSession = useCallback(() => {
+  const startSession = useCallback((meta = {}) => {
     reset()
     const ws = connect()
-    const dispatch = () => send({ type: 'session_start' })
+    const dispatch = () =>
+      send({
+        type: 'session_start',
+        candidate_name: meta.candidate_name ?? null,
+        code: meta.code ?? null,
+        strictness: meta.strictness ?? null,
+      })
     if (ws.readyState === 1) dispatch()
     else ws.addEventListener('open', dispatch, { once: true })
   }, [connect, send, reset])

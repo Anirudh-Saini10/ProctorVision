@@ -1,21 +1,67 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, ArrowRight } from 'lucide-react'
+import { Search, ArrowRight, RefreshCw } from 'lucide-react'
 import PageShell from '../components/PageShell.jsx'
 import LiveDot from '../components/LiveDot.jsx'
-import { getSessions } from '../lib/mockSessions.js'
+import useProctorSocket from '../hooks/useProctorSocket.js'
+import { getSessions as getMockSessions } from '../lib/mockSessions.js'
 
 const FILTERS = ['all', 'live', 'ended']
 
+function formatDuration(sec) {
+  if (sec == null) return ''
+  const m = Math.floor(sec / 60)
+  return `${m}m`
+}
+
 export default function ProctorDashboard() {
+  const { status, activeSessions, reload } = useProctorSocket()
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
-  const sessions = useMemo(() => getSessions(), [])
+
+  // refresh every 4s while open
+  useEffect(() => {
+    const id = setInterval(() => reload(), 4000)
+    return () => clearInterval(id)
+  }, [reload])
+
+  // Map backend sessions to row shape; fall back to mocks when empty so the
+  // dashboard never looks dead during a portfolio walkthrough.
+  const sessions = useMemo(() => {
+    if (activeSessions.length > 0) {
+      return activeSessions.map((s) => ({
+        id: s.session_id,
+        candidate: s.candidate,
+        status: s.status,
+        risk: s.risk,
+        lastEvent: s.last_event?.violation_type ?? '—',
+        lastEventAgo: s.last_event ? 'live' : '',
+        durationLabel: formatDuration(s.duration_sec),
+        strictness: (s.strictness || 'moderate').toUpperCase(),
+        real: true,
+      }))
+    }
+    return getMockSessions().map((m) => ({
+      id: m.id,
+      candidate: m.candidate,
+      status: m.status,
+      risk: m.risk,
+      lastEvent: m.lastEvent,
+      lastEventAgo: m.lastEventAgo,
+      durationLabel: `${m.durationMin}m`,
+      strictness: m.strictness?.toUpperCase() ?? 'MODERATE',
+      real: false,
+    }))
+  }, [activeSessions])
 
   const visible = sessions.filter((s) => {
     if (filter !== 'all' && s.status !== filter) return false
-    if (query && !s.candidate.toLowerCase().includes(query.toLowerCase()) && !s.id.includes(query.toUpperCase()))
+    if (
+      query &&
+      !s.candidate.toLowerCase().includes(query.toLowerCase()) &&
+      !s.id.toLowerCase().includes(query.toLowerCase())
+    )
       return false
     return true
   })
@@ -23,9 +69,20 @@ export default function ProctorDashboard() {
   const stats = {
     active: sessions.filter((s) => s.status === 'live').length,
     flagged: sessions.filter((s) => s.risk >= 50).length,
-    avgRisk: Math.round(sessions.reduce((a, s) => a + s.risk, 0) / sessions.length),
+    avgRisk: sessions.length
+      ? Math.round(sessions.reduce((a, s) => a + s.risk, 0) / sessions.length)
+      : 0,
     ended: sessions.filter((s) => s.status === 'ended').length,
   }
+
+  const wsLabel =
+    status === 'open'
+      ? 'connected'
+      : status === 'connecting'
+      ? 'connecting'
+      : status === 'closed'
+      ? 'disconnected'
+      : status
 
   return (
     <PageShell>
@@ -33,18 +90,28 @@ export default function ProctorDashboard() {
         <div className="flex items-end justify-between">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
-              proctor console
+              proctor console · {wsLabel}
             </p>
             <h1 className="mt-2 text-3xl font-medium tracking-tightest text-text-primary">
               Sessions
             </h1>
           </div>
-          <Link to="/proctor/rules" className="btn-secondary">
-            Configure rules
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={reload}
+              className="btn-secondary"
+              title="Refresh"
+            >
+              <RefreshCw size={13} strokeWidth={2} />
+              Refresh
+            </button>
+            <Link to="/proctor/rules" className="btn-secondary">
+              Configure rules
+            </Link>
+          </div>
         </div>
 
-        {/* stats */}
         <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded border border-border bg-border sm:grid-cols-4">
           <Stat label="active" value={stats.active} accent="accent" />
           <Stat label="flagged" value={stats.flagged} accent="risk-high" />
@@ -52,7 +119,6 @@ export default function ProctorDashboard() {
           <Stat label="ended today" value={stats.ended} />
         </div>
 
-        {/* filters */}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1 rounded border border-border bg-surface-1 p-1">
             {FILTERS.map((f) => (
@@ -87,7 +153,12 @@ export default function ProctorDashboard() {
           </div>
         </div>
 
-        {/* table */}
+        {activeSessions.length === 0 && (
+          <p className="mt-3 font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+            no live sessions · showing demo roster
+          </p>
+        )}
+
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -96,10 +167,10 @@ export default function ProctorDashboard() {
         >
           <div className="grid grid-cols-12 gap-4 border-b border-border bg-surface-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
             <span className="col-span-4">candidate</span>
-            <span className="col-span-2">session</span>
+            <span className="col-span-3">session</span>
             <span className="col-span-1">status</span>
             <span className="col-span-1 text-right">risk</span>
-            <span className="col-span-3">last event</span>
+            <span className="col-span-2">last event</span>
             <span className="col-span-1 text-right">·</span>
           </div>
           <ul className="divide-y divide-border">
@@ -160,9 +231,14 @@ function SessionRow({ session, index }) {
               .slice(0, 2)}
           </div>
           <span className="text-[13px] text-text-primary">{session.candidate}</span>
+          {!session.real && (
+            <span className="font-mono text-[9px] uppercase tracking-eyebrow text-text-muted">
+              demo
+            </span>
+          )}
         </div>
-        <span className="col-span-2 font-mono text-[12px] tracking-wider text-text-secondary">
-          {session.id}
+        <span className="col-span-3 font-mono text-[12px] tracking-wider text-text-secondary">
+          {session.id.slice(0, 12)}
         </span>
         <span className="col-span-1">
           {live ? (
@@ -176,11 +252,13 @@ function SessionRow({ session, index }) {
         <span className={`col-span-1 text-right font-mono tabular-nums ${riskTone}`}>
           {session.risk}
         </span>
-        <span className="col-span-3 truncate text-[12px] text-text-secondary">
+        <span className="col-span-2 truncate text-[12px] text-text-secondary">
           <span className="text-text-primary">{session.lastEvent}</span>
-          <span className="ml-2 font-mono text-[10px] text-text-muted">
-            {session.lastEventAgo}
-          </span>
+          {session.lastEventAgo && (
+            <span className="ml-2 font-mono text-[10px] text-text-muted">
+              {session.lastEventAgo}
+            </span>
+          )}
         </span>
         <span className="col-span-1 flex justify-end">
           <ArrowRight size={14} strokeWidth={1.5} className="text-text-muted" />

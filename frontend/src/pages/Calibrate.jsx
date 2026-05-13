@@ -26,7 +26,7 @@ const STEPS = [
 
 export default function Calibrate() {
   const navigate = useNavigate()
-  const { setCalibrated } = useSession()
+  const { name, code, strictness, setCalibrated } = useSession()
   const {
     status,
     sessionId,
@@ -42,8 +42,12 @@ export default function Calibrate() {
 
   // Kick off WS + session_start as soon as page mounts
   useEffect(() => {
-    startSession()
-  }, [startSession])
+    startSession({
+      candidate_name: name,
+      code,
+      strictness: strictness.id,
+    })
+  }, [startSession, name, code, strictness])
 
   // Once session is started, begin streaming frames
   useEffect(() => {
