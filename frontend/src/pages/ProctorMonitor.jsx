@@ -172,7 +172,7 @@ export default function ProctorMonitor() {
             </button>
             {sessionEnded && (
               <a
-                href={`http://localhost:8000/api/report/${id}`}
+                href={`/api/report/${id}`}
                 target="_blank"
                 rel="noreferrer"
                 className="btn-secondary"
