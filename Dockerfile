@@ -23,6 +23,15 @@ RUN cd frontend && npm run build
 # Copy backend code
 COPY backend/ ./backend/
 
+# Pre-download ML model files (HF Spaces blocks large binaries in git push,
+# so we fetch them at build time instead).
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p backend/models \
+    && curl -sL -o backend/models/face_landmarker.task \
+       https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task \
+    && curl -sL -o backend/yolov8n.pt \
+       https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt
+
 # Environment
 ENV PYTHONUNBUFFERED=1
 ENV TF_CPP_MIN_LOG_LEVEL=3
