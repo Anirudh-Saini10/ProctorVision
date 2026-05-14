@@ -34,15 +34,6 @@ def _default_sqlite_url() -> str:
 
 DATABASE_URL = os.environ.get("DATABASE_URL") or _default_sqlite_url()
 
-# Ensure the directory for the DB file exists (needed on Render where
-# the persistent disk mount point may not exist until first use).
-if DATABASE_URL.startswith("sqlite:///"):
-    db_path = DATABASE_URL[len("sqlite:///"):].lstrip("/")
-    # On Unix absolute paths need a leading slash; on Windows they don't.
-    if os.name != "nt" and not db_path.startswith("/"):
-        db_path = "/" + db_path
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
 # SQLite needs ``check_same_thread=False`` because FastAPI runs
 # request handlers in a threadpool and we open one Session per request.
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
@@ -54,8 +45,32 @@ engine = create_engine(
 )
 
 
+def _ensure_db_dir() -> None:
+    """Create the parent directory for the SQLite file if possible.
+
+    On Render the persistent disk mounts at ``/var/data``; that path
+    may not exist until the first deploy finishes, so we retry lazily
+    inside ``init_db()`` rather than crashing at module import time.
+    """
+    if not DATABASE_URL.startswith("sqlite:///"):
+        return
+    db_path = DATABASE_URL[len("sqlite:///"):].lstrip("/")
+    # On Unix absolute paths need a leading slash; on Windows they don't.
+    if os.name != "nt" and not db_path.startswith("/"):
+        db_path = "/" + db_path
+    dir_path = Path(db_path).parent
+    try:
+        dir_path.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        print(f"WARNING: Cannot create DB directory {dir_path}")
+        print("         If using Render, ensure the persistent disk is mounted.")
+        # Don't raise — let the caller decide whether to continue.
+
+
 def init_db() -> None:
     """Create all tables. Safe to call repeatedly — no-op when current."""
+    _ensure_db_dir()
+
     # Importing here so the model module is registered with SQLModel
     # metadata before ``create_all`` runs.
     from models import Proctor, Exam, Question, Attempt, Answer  # noqa: F401
