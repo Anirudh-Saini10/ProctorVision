@@ -1,8 +1,8 @@
 # Deploying ProctorVision
 
-Hybrid setup: **Vercel** for the frontend (Vite static build), **Render** for the backend (FastAPI + WebSocket + SQLite + YOLOv8).
+Single-service deployment on **Render**. The frontend is built into the backend during deployment, and FastAPI serves both the React app and the API from the same origin.
 
-Both have generous free tiers. Total monthly cost at portfolio scale: **$0**.
+Total monthly cost at portfolio scale: **$0**.
 
 ---
 
@@ -10,76 +10,54 @@ Both have generous free tiers. Total monthly cost at portfolio scale: **$0**.
 
 1. The code is on GitHub. Your repo: `Anirudh-Saini10/ProctorVision`.
 2. Commit `backend/yolov8n.pt` to the repo (it's ~6 MB) so the model is available at boot. If `.gitignore` excludes it, remove that line and `git add backend/yolov8n.pt`.
-3. Free accounts on:
-   - [render.com](https://render.com) (GitHub sign-in)
-   - [vercel.com](https://vercel.com) (GitHub sign-in)
+3. Free account on [render.com](https://render.com) (GitHub sign-in)
 
 ---
 
-## Step 1 — Deploy the backend on Render
+## Deployment Steps
+
+### Option A: Blueprint (recommended, one-click)
 
 1. In Render: **New → Blueprint**.
 2. Connect your GitHub and select `Anirudh-Saini10/ProctorVision`.
 3. Render reads `render.yaml` from the repo root. You should see:
-   - One web service: `proctorvision-api`
+   - One web service: `proctorvision`
    - One persistent disk: `proctorvision-data` (1 GB)
-4. It will ask you to fill in the `FRONTEND_ORIGINS` env var. **Leave it blank for now** — we'll set it after the frontend is deployed.
-5. Click **Apply**. First build takes **~8–12 minutes** (installing PyTorch, OpenCV, MediaPipe, etc.).
-6. When build is green, note your service URL — something like:
+4. Click **Apply**. First build takes **~8–12 minutes** (installing PyTorch, OpenCV, MediaPipe, npm packages).
+5. When build is green, note your service URL — something like:
    ```
-   https://proctorvision-api.onrender.com
+   https://proctorvision.onrender.com
    ```
-7. Verify it's alive: open `https://proctorvision-api.onrender.com/api/health` — you should see `{"status":"healthy",...}`.
+6. Verify it's alive: open `https://proctorvision.onrender.com/api/health` — you should see `{"status":"healthy",...}`.
 
-### Render free tier notes
+### Option B: Manual service configuration
 
-- The instance **sleeps after 15 min of inactivity** and takes ~30s to wake. First request after a long pause will be slow; subsequent ones are normal.
-- If this becomes annoying for demos, upgrade to **Starter ($7/mo)** for always-on. Set `plan: starter` in `render.yaml` and redeploy.
+1. In Render: **New → Web Service**.
+2. Connect your GitHub and select `Anirudh-Saini10/ProctorVision`.
+3. Configure:
+   - **Name**: `proctorvision`
+   - **Region**: Oregon (or nearest to you)
+   - **Runtime**: Python
+   - **Root Directory**: `.` (repo root, not `backend`)
+   - **Build Command**: `cd frontend && npm install && npm run build && cd ../backend && pip install --no-cache-dir -r requirements.txt`
+   - **Start Command**: `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Health Check Path**: `/api/health`
+4. Under **Environment Variables**, add:
+   - `JWT_SECRET`: (leave blank, Render will auto-generate)
+   - `DATABASE_URL`: `sqlite:////var/data/proctorvision.db`
+   - `TF_CPP_MIN_LOG_LEVEL`: `3`
+   - `PYTHONUNBUFFERED`: `1`
+5. Under **Disk**, add:
+   - Name: `proctorvision-data`
+   - Mount Path: `/var/data`
+   - Size: 1 GB
+6. Click **Deploy Web Service**. Wait for the build to finish.
 
 ---
 
-## Step 2 — Deploy the frontend on Vercel
+## Verify End-to-End
 
-1. In Vercel: **Add New → Project → Import Git Repository** → select `Anirudh-Saini10/ProctorVision`.
-2. Configure:
-   - **Framework**: Vite (auto-detected)
-   - **Root Directory**: `frontend`
-   - **Build Command**: `npm run build` (default)
-   - **Output Directory**: `dist` (default)
-3. Under **Environment Variables**, add:
-   - Key: `VITE_API_URL`
-   - Value: your Render URL from Step 1, e.g. `https://proctorvision-api.onrender.com`
-4. Click **Deploy**. Build takes ~2 minutes.
-5. When done, Vercel gives you a URL like:
-   ```
-   https://proctorvision.vercel.app
-   ```
-
----
-
-## Step 3 — Wire CORS
-
-Go back to Render → your service → **Environment** tab.
-
-Set `FRONTEND_ORIGINS` to your Vercel URL **(no trailing slash)**:
-
-```
-https://proctorvision.vercel.app
-```
-
-If you want to also allow preview deployments, comma-separate:
-
-```
-https://proctorvision.vercel.app,https://proctorvision-git-main-yourname.vercel.app
-```
-
-Save → Render automatically redeploys (~30s).
-
----
-
-## Step 4 — Verify end-to-end
-
-1. Open `https://proctorvision.vercel.app`.
+1. Open your Render URL (e.g., `https://proctorvision.onrender.com`).
 2. Click **Proctor sign-in** → **Create account** → register.
 3. Create a new exam with 2-3 questions. Note the join code.
 4. Open the same site in an **incognito window** (so it doesn't share auth).
@@ -89,33 +67,49 @@ Save → Render automatically redeploys (~30s).
 
 ---
 
-## Updating the deploy
+## Updating the Deploy
 
-Both platforms auto-deploy on `git push` to `main`:
+Render auto-deploys on `git push` to `main`. Build time depends on what changed:
 
-- Frontend updates → Vercel rebuilds (~1-2 min).
-- Backend updates → Render rebuilds (~3-8 min if dependencies changed, ~1-2 min for code-only).
+- Code-only changes: **~1–2 min** (pip packages cached)
+- Dependency changes: **~8–12 min** (full rebuild)
 
 No manual action needed after initial setup.
 
 ---
 
-## Custom domain (optional)
+## Render Free Tier Notes
 
-Both Vercel and Render support custom domains on free tier:
+- The instance **sleeps after 15 min of inactivity** and takes ~30s to wake. First request after a long pause will be slow; subsequent ones are normal.
+- If cold starts become annoying for demos, upgrade to **Starter ($7/mo)** for always-on. Set `plan: starter` in `render.yaml` and redeploy.
 
-- **Vercel**: Project → Settings → Domains → add e.g. `proctorvision.com`.
-- **Render**: Service → Settings → Custom Domains.
+---
 
-Update `VITE_API_URL` and `FRONTEND_ORIGINS` if you change either URL.
+## Custom Domain (optional)
+
+Render supports custom domains on free tier:
+
+1. Go to your service → **Settings → Custom Domains**.
+2. Add e.g., `proctorvision.com`.
+3. Update your DNS records as instructed by Render.
+
+No other configuration needed — same origin, no CORS.
 
 ---
 
 ## Troubleshooting
 
+**"WARNING: Static frontend directory not found" in logs**
+- The frontend build step failed. Check the build logs for npm errors.
+- Common cause: `npm install` failed due to dependency conflicts or network issues.
+
+**"404 Not Found" on the home page**
+- Static file mount failed. Check that `frontend/dist` exists after the build.
+- Verify the path in `backend/main.py` resolves correctly.
+
 **WebSocket fails to connect**
 - Confirm Render URL is `https://` (not `http://`). Frontend derives `wss://` from `https://`.
-- Check `FRONTEND_ORIGINS` matches the Vercel URL exactly, no trailing slash.
+- Check that the `/ws` endpoint is registered before the static mount (it is in `main.py`).
 
 **"401 Not authenticated" after login**
 - JWT secret changed between deploys. Set `JWT_SECRET` explicitly in Render env (don't rely on `generateValue`) if you want tokens to survive redeploys reliably.

@@ -2,7 +2,7 @@
 
 > AI-powered remote exam proctoring with real-time computer vision, live risk scoring, and full exam authoring — built for educators who need integrity without invigilation halls.
 
-**Live Demo:** [proctor-vision.vercel.app](https://proctor-vision.vercel.app)
+**Live Demo:** [proctorvision.onrender.com](https://proctorvision.onrender.com)
 
 ---
 
@@ -46,7 +46,7 @@ ProctorVision is a full-stack remote proctoring platform that lets educators cre
 | **Auth** | JWT (bcrypt + python-jose) |
 | **Database** | SQLModel + SQLite (zero-ops, file-based) |
 | **Reports** | ReportLab (PDF generation) |
-| **Deploy** | Render (backend) + Vercel (frontend) |
+| **Deploy** | Render (single service, frontend + backend) |
 
 ---
 
@@ -117,8 +117,9 @@ Open [http://localhost:5173](http://localhost:5173)
 See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide.
 
 **Summary:**
-- Backend → [Render](https://render.com) (`render.yaml` blueprint)
-- Frontend → [Vercel](https://vercel.com) (`frontend/vercel.json`)
+- Single service on [Render](https://render.com) (`render.yaml` blueprint)
+- Frontend built into backend, served by FastAPI
+- Same origin = no CORS, zero config
 - Cost at portfolio scale: **$0**
 
 ---
@@ -148,7 +149,7 @@ MCQs are graded instantly on submission. Short answers are stored for manual rev
 ```
 ProctorVision/
 ├── backend/
-│   ├── main.py                 # FastAPI entry point
+│   ├── main.py                 # FastAPI entry point + static file serving
 │   ├── websocket_handler.py    # WS + CV pipeline orchestration
 │   ├── violation_logger.py     # Risk scoring & session summary
 │   ├── report_generator.py     # PDF report builder
@@ -168,8 +169,7 @@ ProctorVision/
 │   │   ├── hooks/              # useProctorSocket, useAudioActivity
 │   │   ├── lib/api.js          # REST client
 │   │   └── state/              # AuthContext, SessionContext
-│   └── vercel.json             # SPA rewrites
-├── render.yaml                 # Render blueprint
+├── render.yaml                 # Render blueprint (builds frontend + backend)
 ├── DEPLOY.md                   # Deployment guide
 └── FUTURE_IDEAS.md             # Roadmap & research
 ```
