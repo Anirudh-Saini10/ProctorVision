@@ -34,6 +34,15 @@ def _default_sqlite_url() -> str:
 
 DATABASE_URL = os.environ.get("DATABASE_URL") or _default_sqlite_url()
 
+# Ensure the directory for the DB file exists (needed on Render where
+# the persistent disk mount point may not exist until first use).
+if DATABASE_URL.startswith("sqlite:///"):
+    db_path = DATABASE_URL[len("sqlite:///"):].lstrip("/")
+    # On Unix absolute paths need a leading slash; on Windows they don't.
+    if os.name != "nt" and not db_path.startswith("/"):
+        db_path = "/" + db_path
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
 # SQLite needs ``check_same_thread=False`` because FastAPI runs
 # request handlers in a threadpool and we open one Session per request.
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
