@@ -117,6 +117,9 @@ async def list_sessions():
 _static_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _static_dir.is_dir():
     app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
+else:
+    print(f"WARNING: Static frontend directory not found at {_static_dir}")
+    print("API routes will work, but the React UI will not be served.")
 
 
 # --- Startup event ---
