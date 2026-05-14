@@ -120,14 +120,30 @@ class WebSocketHandler:
         # only load when someone actually opens a proctoring session,
         # not at app startup. This keeps the free-tier container under
         # 512MB RAM during boot.
-        from cv_pipeline import CVPipeline
+        pipeline = None
+        cv_error = None
+        try:
+            from cv_pipeline import CVPipeline
+            pipeline = CVPipeline()
+        except Exception as exc:
+            cv_error = str(exc)
+            print(f"  [WS] CVPipeline import/init failed: {cv_error}")
 
         await websocket.accept()
         ws_id = id(websocket)
-        pipeline = CVPipeline()
-        self.active_sessions[ws_id] = pipeline
+        if pipeline is not None:
+            self.active_sessions[ws_id] = pipeline
 
         print(f"  [WS] Client connected: {ws_id}")
+
+        if cv_error:
+            await self._send(websocket, {
+                "type": "error",
+                "message": f"Proctoring engine unavailable: {cv_error}",
+            })
+            # Keep connection open so client can handle gracefully.
+            # We'll still process session_start / session_end for bookkeeping,
+            # but skip all frame/tab/audio processing.
 
         try:
             while True:
@@ -146,16 +162,32 @@ class WebSocketHandler:
                 msg_type = message.get("type")
 
                 if msg_type == "session_start":
-                    await self._handle_session_start(websocket, pipeline, message)
+                    if pipeline is None:
+                        await self._send(websocket, {
+                            "type": "error",
+                            "message": "Proctoring engine unavailable — exam can continue without AI monitoring.",
+                        })
+                    else:
+                        await self._handle_session_start(websocket, pipeline, message)
 
                 elif msg_type == "frame":
-                    await self._handle_frame(websocket, pipeline, message)
+                    if pipeline is None:
+                        # Silently drop frames when CV is unavailable
+                        pass
+                    else:
+                        await self._handle_frame(websocket, pipeline, message)
 
                 elif msg_type == "tab_switch":
-                    await self._handle_tab_switch(websocket, pipeline, message)
+                    if pipeline is None:
+                        pass
+                    else:
+                        await self._handle_tab_switch(websocket, pipeline, message)
 
                 elif msg_type == "audio_activity":
-                    await self._handle_audio_activity(websocket, pipeline, message)
+                    if pipeline is None:
+                        pass
+                    else:
+                        await self._handle_audio_activity(websocket, pipeline, message)
 
                 elif msg_type == "session_end":
                     await self._handle_session_end(websocket, pipeline)
@@ -560,6 +592,12 @@ class WebSocketHandler:
 
     async def _handle_session_end(self, websocket, pipeline):
         """End the current proctoring session."""
+        if pipeline is None:
+            await self._send(websocket, {
+                "type": "session_ended",
+                "summary": {"risk_score": 0, "violation_counts": {}, "total_events": 0, "reason": "no_cv_engine"},
+            })
+            return
         summary = pipeline.end_session()
         print(f"  [WS] Session ended. Risk score: {summary['risk_score']}")
 
