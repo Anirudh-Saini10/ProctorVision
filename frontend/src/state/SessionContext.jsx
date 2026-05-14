@@ -47,12 +47,38 @@ export function SessionProvider({ children }) {
   const [code, setCode] = useState('')
   const [consented, setConsented] = useState(false)
   const [calibrated, setCalibrated] = useState(false)
+  // Real exam + attempt context, populated when the candidate joins via
+  // a code. `exam` is the public payload from /api/exams/by-code/X
+  // (questions WITHOUT correct answers); `attemptId` is the row id
+  // returned by /api/attempts. Either may be null in legacy demo flows.
+  const [exam, setExam] = useState(null)
+  const [attemptId, setAttemptId] = useState(null)
+  // Optional explicit override of the code-derived strictness. The
+  // lobby exposes a small selector that writes into this so users can
+  // dial in any preset without crafting a code that ends in a specific
+  // character.
+  const [strictnessOverride, setStrictnessOverride] = useState(null)
 
   const enter = useCallback((nm, cd) => {
     setName(nm)
     setCode(cd)
     setConsented(false)
     setCalibrated(false)
+    setExam(null)
+    setAttemptId(null)
+    setStrictnessOverride(null)
+  }, [])
+
+  // Set when the candidate has successfully joined a real exam (vs the
+  // legacy demo flow). Carries the exam payload + attempt id.
+  const joinExam = useCallback(({ name: nm, code: cd, exam: ex, attemptId: aid }) => {
+    setName(nm)
+    setCode(cd)
+    setExam(ex)
+    setAttemptId(aid)
+    setConsented(false)
+    setCalibrated(false)
+    setStrictnessOverride(null)
   }, [])
 
   const reset = useCallback(() => {
@@ -60,10 +86,19 @@ export function SessionProvider({ children }) {
     setCode('')
     setConsented(false)
     setCalibrated(false)
+    setExam(null)
+    setAttemptId(null)
+    setStrictnessOverride(null)
   }, [])
 
   const role = deriveRole(code)
-  const strictness = deriveStrictness(code)
+  // Real exams carry their own strictness from the proctor's exam
+  // settings — prefer that over the demo code-derived value.
+  const strictness = strictnessOverride
+    ? STRICTNESS[strictnessOverride]
+    : exam?.strictness && STRICTNESS[exam.strictness]
+    ? STRICTNESS[exam.strictness]
+    : deriveStrictness(code)
 
   return (
     <SessionContext.Provider
@@ -71,12 +106,16 @@ export function SessionProvider({ children }) {
         name,
         code,
         role,
+        exam,
+        attemptId,
         strictness,
+        setStrictnessOverride,
         consented,
         setConsented,
         calibrated,
         setCalibrated,
         enter,
+        joinExam,
         reset,
       }}
     >

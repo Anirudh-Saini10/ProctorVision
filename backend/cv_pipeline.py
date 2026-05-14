@@ -44,8 +44,11 @@ RunningMode = mp.tasks.vision.RunningMode
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 FACE_LANDMARKER_MODEL = os.path.join(MODEL_DIR, "face_landmarker.task")
 
-# Processing frequency for YOLO (run every N frames)
-YOLO_FRAME_INTERVAL = 5
+# Processing frequency for YOLO (run every N frames). At 5fps frame
+# streaming, 3 frames ≈ 600ms — a brief phone-flash gets ~2 chances to
+# be caught instead of 1, which (combined with the streak-path logic
+# in object_detector) makes phone detection noticeably more responsive.
+YOLO_FRAME_INTERVAL = 3
 
 # Minimum face detection confidence for reliable landmark data
 MIN_FACE_CONFIDENCE = 0.5
@@ -94,6 +97,18 @@ class CVPipeline:
         # Session state
         self._session_active = False
 
+        # Strictness preset for this session ('lenient'|'moderate'|'strict').
+        # Set by the websocket handler at session_start. Currently used
+        # to gate speaking-related violations (lip_movement / audio) so
+        # they only fire under 'strict'.
+        self.strictness = "moderate"
+
+        # Sustained multi-face tracking. MediaPipe occasionally hallucinates
+        # a second face on wall textures / posters at low confidence. We
+        # require the second face to persist across multiple consecutive
+        # frames before logging a violation.
+        self._multi_face_streak = 0
+
     def start_session(self):
         """
         Start a new proctoring session.
@@ -105,13 +120,26 @@ class CVPipeline:
             str: Session ID
         """
         # Create FaceLandmarker
+        # Close any existing landmarker before re-creating (important for
+        # recalibration — a second start_session() on the same pipeline must
+        # release the old MediaPipe resources).
+        if self._landmarker is not None:
+            try:
+                self._landmarker.close()
+            except Exception:
+                pass
+            self._landmarker = None
+
         options = FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=FACE_LANDMARKER_MODEL),
             running_mode=RunningMode.VIDEO,
             num_faces=2,  # Detect up to 2 faces for multi-face violation
-            min_face_detection_confidence=MIN_FACE_CONFIDENCE,
-            min_face_presence_confidence=MIN_FACE_CONFIDENCE,
-            min_tracking_confidence=0.4,
+            # Raised from 0.5 → 0.7 to stop hallucinating "second faces" on
+            # wall posters, shadows and background textures. 0.7 still
+            # reliably picks up an actual human face in frame.
+            min_face_detection_confidence=0.7,
+            min_face_presence_confidence=0.7,
+            min_tracking_confidence=0.5,
             output_face_blendshapes=False,
             output_facial_transformation_matrixes=False,
         )
@@ -121,8 +149,19 @@ class CVPipeline:
         session_id = self.violation_logger.start_session()
         self._frame_count = 0
         self._start_ms = int(time.time() * 1000)
+        self._multi_face_streak = 0
 
-        # Start calibration phase
+        # Reset the one-shot "calibration_complete sent" flag so the WS
+        # handler will emit calibration_complete when the NEW session's
+        # calibration finishes. Without this, a recalibration never
+        # resolves on the frontend.
+        if hasattr(self, "_cal_complete_sent"):
+            self._cal_complete_sent = False
+
+        # Start calibration phase (resets baseline on detectors too)
+        self.gaze.reset()
+        self.head_pose.reset()
+        self.lip_detector.reset()
         self.calibration.start()
 
         self._session_active = True
@@ -240,6 +279,14 @@ class CVPipeline:
                     # state across a head turn.
                     self.gaze.deviation_start_time = None
 
+                # NOTE: gaze_deviation violations are intentionally NOT
+                # logged anymore. Pure eye-only gaze drift produced too many
+                # false positives for students who naturally glance around,
+                # rest their eyes, sulk, or look away to think during long
+                # exams. We rely on head_pose violations instead — if a
+                # student actually TURNS their head away from the screen
+                # (to look at a phone, another screen, or a person), that
+                # will flag. Small eye movements are allowed.
                 if head_pose_result["is_violation"]:
                     v = self.violation_logger.log_violation(
                         "head_pose",
@@ -249,43 +296,57 @@ class CVPipeline:
                     )
                     if v:
                         new_violations.append(v.to_dict())
-                elif has_iris and gaze_result and gaze_result["is_violation"]:
-                    v = self.violation_logger.log_violation(
-                        "gaze_deviation",
-                        confidence=gaze_result["confidence"],
-                        metadata={"direction": gaze_result["direction"],
-                                  "duration": gaze_result["violation_duration"]},
-                    )
-                    if v:
-                        new_violations.append(v.to_dict())
 
-                # Lip movement (every frame)
+                # Lip movement (every frame). The detector still RUNS
+                # every frame because its smoothed MAR history is also
+                # what gates audio-driven violations (`is_mouth_active`).
+                # We just suppress the standalone silent-lip-sync
+                # violation outside strict mode — talking to oneself is
+                # tolerated in moderate / lenient sessions.
                 lip_result = self.lip_detector.detect(landmarks, w, h)
-                if lip_result["is_violation"]:
+                if (
+                    lip_result["is_violation"]
+                    and getattr(self, "strictness", "moderate") == "strict"
+                ):
                     v = self.violation_logger.log_violation(
                         "lip_movement",
                         confidence=lip_result["confidence"],
                         metadata={"mar": lip_result["mar"],
-                                  "duration": lip_result["violation_duration"]},
+                                  "duration": lip_result["violation_duration"],
+                                  "source": "mar"},
                     )
                     if v:
                         new_violations.append(v.to_dict())
 
-                # Multi-face check (from MediaPipe face count)
+                # Multi-face check (from MediaPipe face count).
+                # Require a SUSTAINED second-face detection across multiple
+                # consecutive frames before flagging. MediaPipe can
+                # briefly hallucinate a second face on wall art, posters,
+                # patterned fabric or shadows; a real second person in
+                # frame will persist. At ~5 fps, 8 frames ≈ 1.6 seconds.
                 if face_count > 1:
+                    self._multi_face_streak += 1
+                else:
+                    self._multi_face_streak = 0
+
+                if self._multi_face_streak >= 8:
                     v = self.violation_logger.log_violation(
                         "multiple_faces",
                         confidence=1.0,
-                        metadata={"face_count": face_count},
+                        metadata={"face_count": face_count,
+                                  "sustained_frames": self._multi_face_streak},
                     )
                     if v:
                         new_violations.append(v.to_dict())
+                        # reset so the next violation also needs a fresh streak
+                        self._multi_face_streak = 0
 
                 # Clear degraded flag if detection is good
                 self.violation_logger.clear_degraded_flag()
 
         else:
             # No face detected
+            self._multi_face_streak = 0
             if self.calibration.is_complete:
                 v = self.violation_logger.check_face_absence(face_detected=False)
                 if v:
@@ -308,8 +369,14 @@ class CVPipeline:
                     if v:
                         new_violations.append(v.to_dict())
 
-            # Multi-person from YOLO (backup for MediaPipe face count)
-            if yolo_results["person_count"] > 1 and face_count <= 1:
+            # Multi-person from YOLO (backup for MediaPipe face count).
+            # Also gated behind the sustained streak to avoid single-frame
+            # YOLO false positives on mannequins, posters, or reflections.
+            if (
+                yolo_results["person_count"] > 1
+                and face_count <= 1
+                and self._multi_face_streak >= 4
+            ):
                 v = self.violation_logger.log_violation(
                     "multiple_faces",
                     confidence=0.8,

@@ -4,9 +4,14 @@ ProctorVision — Violation Logger Module
 Tracks all violations with timestamps, computes live session risk score,
 and manages per-session state for report generation.
 
-Risk Score Formula:
-    Session Integrity Score = 100 - SUM(violation_weight × violation_count)
-    Clamped to [0, 100]
+Risk Score Formula (live):
+    For each violation, contributes weight * 0.5^(age_sec / HALF_LIFE) to the
+    current risk. Sum over all violations, clamp to [0, 100]. So:
+      - 0   = no recent violations (clean)
+      - 100 = sustained or many recent violations
+    The score naturally decays over ~12s if behavior improves.
+    Final summary also reports `peak_risk` (worst live value seen) and the
+    classic monotonic `integrity_score` = max(0, 100 - SUM(weights)).
 
 Violation Weights (from spec):
     - Multiple faces detected:       15 pts each
@@ -30,19 +35,36 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-# Violation weights for risk score computation
+# Violation weights for risk score computation.
+#
+# These are deliberately aggressive for the "hard evidence" categories
+# (a phone, a second person, or the candidate disappearing entirely)
+# because a single such event is grounds for review on its own. With
+# the 12s half-life below, a phone weight of 45 means *one* phone flash
+# pushes the live gauge to ~45 immediately, two flashes within the
+# cooldown window land you around 80, three is ceiling. That matches
+# the intuition the proctor has when watching it happen.
 VIOLATION_WEIGHTS = {
-    "multiple_faces":    15,
-    "phone_detected":    12,
-    "tab_switch":        10,
-    "earpiece_detected": 10,
-    "face_absence":       8,
-    "gaze_deviation":     6,
-    "head_pose":          5,
-    "lip_movement":       5,
-    "suspicious_object":  8,
-    "secondary_device":  10,
+    "multiple_faces":    50,
+    "phone_detected":    45,
+    "secondary_device":  40,
+    "face_absence":      35,
+    "tab_switch":        22,
+    "earpiece_detected": 22,
+    "suspicious_object": 18,
+    "gaze_deviation":    10,
+    "head_pose":         10,
+    "lip_movement":       6,
+    # Proctor-initiated. Weight is moderate because the proctor's
+    # judgement is human and should clearly move the needle, but a
+    # single flag shouldn't tank the entire integrity score.
+    "manual_flag":       25,
 }
+
+# Half-life of a single violation's contribution to the live risk score.
+# A 12-second half-life means a tab_switch (weight 18) goes 18 -> 9 -> 4.5
+# over ~24 seconds if no further violations occur.
+LIVE_RISK_HALF_LIFE = 12.0
 
 # Minimum confidence to log a violation
 MIN_CONFIDENCE = 0.65
@@ -91,7 +113,8 @@ class ViolationLogger:
         self.violations = []                    # List of Violation objects
         self.violation_counts = {}              # {type: count}
         self.last_violation_time = {}           # {type: last_timestamp}
-        self.risk_score = 100                   # Current session integrity score
+        self.risk_score = 0                     # Current LIVE risk (0=clean, 100=max concern)
+        self._peak_risk = 0                     # Highest live risk reached this session
         self._face_absent_start = None          # Track face absence duration
         self._degraded_detection_logged = False # Avoid spamming degraded events
 
@@ -102,7 +125,8 @@ class ViolationLogger:
         self.violations = []
         self.violation_counts = {}
         self.last_violation_time = {}
-        self.risk_score = 100
+        self.risk_score = 0
+        self._peak_risk = 0
         self._face_absent_start = None
         self._degraded_detection_logged = False
         return self.session_id
@@ -224,13 +248,56 @@ class ViolationLogger:
         self._degraded_detection_logged = False
 
     def _update_risk_score(self):
-        """Recalculate the session integrity score from all logged violations."""
-        total_deduction = sum(v.weight for v in self.violations)
-        self.risk_score = max(0, min(100, 100 - total_deduction))
+        """Recalculate the LIVE risk score with exponential decay.
+
+        Each past violation contributes weight * 0.5^(age / HALF_LIFE).
+        Result is clamped to [0, 100]. Peak is tracked separately.
+        """
+        if not self.violations:
+            self.risk_score = 0
+            return
+        now = time.time()
+        score = 0.0
+        for v in self.violations:
+            age = max(0.0, now - v.timestamp)
+            score += v.weight * (0.5 ** (age / LIVE_RISK_HALF_LIFE))
+        self.risk_score = int(max(0, min(100, round(score))))
+        if self.risk_score > self._peak_risk:
+            self._peak_risk = self.risk_score
 
     def get_risk_score(self):
-        """Get the current session integrity score (0-100)."""
+        """Get the current LIVE risk (recomputes decay every call)."""
+        self._update_risk_score()
         return self.risk_score
+
+    def get_integrity_score(self):
+        """Final report metric. Higher = cleaner session (100 = no
+        violations, 0 = catastrophic).
+
+        We use an asymptotic curve rather than a flat subtraction so a
+        candidate with 7 violations doesn't get the same score (0/100)
+        as one with 70 violations. Formula:
+
+            integrity = round(100 * 100 / (100 + total_impact))
+
+        Examples:
+            total_impact   0  →  100  (clean)
+                          20  →   83
+                          50  →   67
+                         100  →   50  (half)
+                         200  →   33
+                         500  →   17
+
+        The score asymptotically approaches 0 but never reaches it,
+        which is honest: the system can't distinguish between "bad"
+        and "infinitely bad" once a session is past a certain point.
+        Floor at 1 so the report never shows the absurd "0/100".
+        """
+        total = sum(v.weight for v in self.violations)
+        if total <= 0:
+            return 100
+        score = round(100 * 100 / (100 + total))
+        return max(1, min(100, score))
 
     def get_session_summary(self):
         """
@@ -242,12 +309,19 @@ class ViolationLogger:
         current_time = time.time()
         duration = current_time - self.session_start_time if self.session_start_time else 0
 
+        # Make sure live risk reflects decay up to this moment.
+        self._update_risk_score()
         return {
             "session_id": self.session_id,
             "start_time": self.session_start_time,
             "duration": duration,
             "duration_formatted": self._format_duration(duration),
-            "risk_score": self.risk_score,
+            # Final "how risky was this session" — use the peak so a clean ending
+            # doesn't hide a bad middle.
+            "risk_score": self._peak_risk,
+            "live_risk": self.risk_score,
+            "peak_risk": self._peak_risk,
+            "integrity_score": self.get_integrity_score(),
             "total_violations": len(self.violations),
             "violation_counts": dict(self.violation_counts),
             "violations": [v.to_dict() for v in self.violations],

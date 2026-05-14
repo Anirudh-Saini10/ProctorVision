@@ -39,6 +39,14 @@ Thumbs.db
 ProctorVision_Reference.txt
 ProctorVision_Canonical_Reference.pdf
 
-# YOLOv8 model cache
+# YOLOv8 model cache — but NOT the production weights file, which must
+# ship in the repo so Render has it on first boot (otherwise the first
+# request times out downloading it from Ultralytics).
 *.pt
+!backend/yolov8n.pt
 runs/
+
+# Local SQLite DB (dev only; production lives on Render's persistent disk)
+backend/data/
+*.db
+*.db-journal

@@ -5,7 +5,8 @@ import LiveDot from './LiveDot.jsx'
 export default function TopNav() {
   const { pathname } = useLocation()
   const links = [
-    { to: '/login', label: 'Enter' },
+    { to: '/join', label: 'Join exam' },
+    { to: '/proctor/login', label: 'Proctor' },
     { to: '/report', label: 'Report' },
   ]
   return (

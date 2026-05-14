@@ -1,7 +1,7 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Flag, Pause, StopCircle } from 'lucide-react'
+import { ArrowLeft, Flag, Pause, StopCircle, X } from 'lucide-react'
 import PageShell from '../components/PageShell.jsx'
 import RiskGauge from '../components/RiskGauge.jsx'
 import LiveDot from '../components/LiveDot.jsx'
@@ -28,40 +28,49 @@ export default function ProctorMonitor() {
     latestSnapshot,
     liveRisk,
     events: liveEvents,
+    evidenceSnapshots,
     subscribe,
+    manualFlag,
+    forceEnd,
   } = useProctorSocket()
+  const sessionEnded = Boolean(subscribed?.ended)
+  // Lightbox state for clicking on an evidence thumbnail.
+  const [lightbox, setLightbox] = useState(null)
 
-  // is this id a real, live backend session? subscribe when WS opens
-  const isLive = useMemo(
-    () => activeSessions.some((s) => s.session_id === id),
+  // Find the session in the activeSessions list (which now includes
+  // both live and ended). `isReal` covers both — we want to subscribe
+  // (or replay-subscribe) the backend in either case. `isLive` is just
+  // the live subset, used to gate the action buttons.
+  const sessionRow = useMemo(
+    () => activeSessions.find((s) => s.session_id === id),
     [activeSessions, id]
   )
+  const isReal = Boolean(sessionRow)
+  const isLive = sessionRow?.status === 'live'
   useEffect(() => {
-    if (isLive && status === 'open') subscribe(id)
-  }, [isLive, status, id, subscribe])
+    if (isReal && status === 'open') subscribe(id)
+  }, [isReal, status, id, subscribe])
 
-  // Mock fallback when not live
-  const mock = useMemo(() => (isLive ? null : getMockSession(id)), [id, isLive])
+  // Mock fallback only when the session id isn't known to the backend
+  // at all (e.g. someone hits a hardcoded demo URL).
+  const mock = useMemo(() => (isReal ? null : getMockSession(id)), [id, isReal])
   const mockEvents = useMemo(
-    () => (isLive ? null : getMockEvents(id ?? 'X', 18)),
-    [id, isLive]
+    () => (isReal ? null : getMockEvents(id ?? 'X', 18)),
+    [id, isReal]
   )
 
-  const candidate = isLive
-    ? subscribed?.candidate ?? activeSessions.find((s) => s.session_id === id)?.candidate ?? '...'
+  const candidate = isReal
+    ? subscribed?.candidate ?? sessionRow?.candidate ?? '...'
     : mock?.candidate
-  const strictness = isLive
-    ? subscribed?.strictness ?? '—'
+  const strictness = isReal
+    ? subscribed?.strictness ?? sessionRow?.strictness ?? '—'
     : mock?.strictness
-  const durationMin = isLive
-    ? Math.round(
-        (activeSessions.find((s) => s.session_id === id)?.duration_sec ?? 0) /
-          60
-      )
+  const durationMin = isReal
+    ? Math.round((sessionRow?.duration_sec ?? 0) / 60)
     : mock?.durationMin ?? 0
 
-  const risk = isLive ? liveRisk : mock?.risk ?? 0
-  const events = isLive
+  const risk = isReal ? liveRisk : mock?.risk ?? 0
+  const events = isReal
     ? liveEvents
     : (mockEvents ?? []).map((e) => ({
         id: e.id,
@@ -71,7 +80,7 @@ export default function ProctorMonitor() {
         stamp: `+${Math.floor(e.atSec / 60)}:${String(e.atSec % 60).padStart(2, '0')}`,
       }))
 
-  if (!isLive && !mock) {
+  if (!isReal && !mock) {
     return (
       <PageShell>
         <section className="mx-auto max-w-3xl px-6 py-20 text-center">
@@ -100,7 +109,7 @@ export default function ProctorMonitor() {
             </Link>
             <h1 className="mt-2 text-2xl font-medium tracking-tightest text-text-primary">
               {candidate}
-              {!isLive && (
+              {!isReal && (
                 <span className="ml-2 font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
                   demo
                 </span>
@@ -115,18 +124,62 @@ export default function ProctorMonitor() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary">
+            <button
+              type="button"
+              className="btn-secondary disabled:opacity-40"
+              disabled={!isLive || sessionEnded}
+              onClick={() => {
+                if (!isLive || sessionEnded) return
+                const note = window.prompt(
+                  'Add a note for this manual flag (optional):',
+                  ''
+                )
+                // null = cancel; '' = OK with empty
+                if (note === null) return
+                manualFlag(note)
+              }}
+              title={
+                !isLive
+                  ? 'Not available for replay sessions'
+                  : sessionEnded
+                  ? 'Session already ended'
+                  : 'Add a manual flag with optional note'
+              }
+            >
               <Flag size={13} strokeWidth={2} /> Manual flag
             </button>
-            <button type="button" className="btn-secondary">
+            <button
+              type="button"
+              className="btn-secondary disabled:opacity-40"
+              disabled
+              title="Pause is not implemented in this build"
+            >
               <Pause size={13} strokeWidth={2} /> Pause
             </button>
             <button
               type="button"
-              className="inline-flex items-center justify-center gap-2 rounded border border-border bg-surface-3 px-4 py-2 text-[13px] font-medium text-risk-high transition-colors hover:bg-risk-high hover:text-white"
+              disabled={!isLive || sessionEnded}
+              onClick={() => {
+                if (!isLive || sessionEnded) return
+                const ok = window.confirm(
+                  `End ${candidate}'s session now? They will be moved to the summary page immediately.`
+                )
+                if (ok) forceEnd('Ended by proctor')
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded border border-border bg-surface-3 px-4 py-2 text-[13px] font-medium text-risk-high transition-colors hover:bg-risk-high hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-3 disabled:hover:text-risk-high"
             >
               <StopCircle size={13} strokeWidth={2} /> End session
             </button>
+            {sessionEnded && (
+              <a
+                href={`http://localhost:8000/api/report/${id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-secondary"
+              >
+                Open report ↗
+              </a>
+            )}
           </div>
         </div>
 
@@ -140,7 +193,11 @@ export default function ProctorMonitor() {
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
                 <div className="flex items-center gap-3">
-                  {isLive ? (
+                  {sessionEnded ? (
+                    <span className="font-mono text-[10px] uppercase tracking-eyebrow text-risk-high">
+                      ● session ended
+                    </span>
+                  ) : isLive ? (
                     <LiveDot variant="online" label="snapshot live" />
                   ) : (
                     <span className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
@@ -153,7 +210,7 @@ export default function ProctorMonitor() {
                 </span>
               </div>
               <div className="relative aspect-video">
-                {isLive ? (
+                {isReal ? (
                   <SnapshotLive snapshot={latestSnapshot} candidate={candidate} />
                 ) : (
                   <SnapshotMock candidate={candidate} />
@@ -161,7 +218,7 @@ export default function ProctorMonitor() {
               </div>
               <Timeline
                 events={
-                  isLive
+                  isReal
                     ? liveEvents.map((e, i) => ({
                         id: e.id,
                         atSec: i * 13 + 5,
@@ -173,6 +230,13 @@ export default function ProctorMonitor() {
                 duration={Math.max(60, durationMin * 60)}
               />
             </motion.div>
+
+            {isReal && (
+              <EvidenceGallery
+                snapshots={evidenceSnapshots}
+                onOpen={(s) => setLightbox(s)}
+              />
+            )}
           </div>
 
           <aside className="col-span-12 flex flex-col gap-4 lg:col-span-4">
@@ -182,16 +246,34 @@ export default function ProctorMonitor() {
               transition={{ duration: 0.5, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
               className="card flex items-center gap-5"
             >
-              <RiskGauge value={Math.round(risk)} label="Live risk" />
+              <RiskGauge
+                value={Math.round(risk)}
+                label={sessionEnded ? 'Peak risk' : 'Live risk'}
+              />
               <div>
-                <p className="label">Verdict</p>
+                <p className="label">
+                  {sessionEnded ? 'Final verdict' : 'Verdict'}
+                </p>
                 <p className="mt-1 text-[13px] text-text-secondary">
                   {risk >= 70
-                    ? 'High concern. Consider intervention.'
+                    ? sessionEnded
+                      ? 'High concern. Recommend review before passing.'
+                      : 'High concern. Consider intervention.'
                     : risk >= 35
-                    ? 'Moderate signal. Continue monitoring.'
+                    ? sessionEnded
+                      ? 'Moderate signal. Review flagged events.'
+                      : 'Moderate signal. Continue monitoring.'
+                    : sessionEnded
+                    ? 'Clean session. No significant signals.'
                     : 'Within expected range.'}
                 </p>
+                {sessionEnded && subscribed?.summary && (
+                  <p className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+                    {subscribed.summary.total_violations ?? events.length} events ·{' '}
+                    integrity {subscribed.summary.integrity_score ?? '—'}/100 ·{' '}
+                    {subscribed.summary.duration_formatted ?? '—'}
+                  </p>
+                )}
               </div>
             </motion.div>
 
@@ -254,7 +336,121 @@ export default function ProctorMonitor() {
           </aside>
         </div>
       </section>
+
+      <AnimatePresence>
+        {lightbox && (
+          <EvidenceLightbox
+            snapshot={lightbox}
+            onClose={() => setLightbox(null)}
+          />
+        )}
+      </AnimatePresence>
     </PageShell>
+  )
+}
+
+function EvidenceGallery({ snapshots, onOpen }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+      className="mt-6 overflow-hidden rounded border border-border bg-surface-1"
+    >
+      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+          evidence wall · violation snapshots
+        </span>
+        <span className="font-mono text-[10px] text-text-muted">
+          {snapshots.length} {snapshots.length === 1 ? 'frame' : 'frames'}
+        </span>
+      </div>
+      {snapshots.length === 0 ? (
+        <div className="px-4 py-10 text-center font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+          no violation evidence yet
+        </div>
+      ) : (
+        <ul className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 md:grid-cols-4">
+          {snapshots.map((s) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => onOpen(s)}
+                className="group relative block w-full overflow-hidden rounded border border-border bg-surface-2 transition-colors hover:border-border-strong"
+                title={`${s.violation_type ?? 'violation'} — click to enlarge`}
+              >
+                <div className="aspect-video">
+                  <img
+                    src={`data:image/jpeg;base64,${s.data}`}
+                    alt={`evidence for ${s.violation_type}`}
+                    className="h-full w-full -scale-x-100 object-cover"
+                  />
+                </div>
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
+                  <span className="truncate font-mono text-[10px] uppercase tracking-eyebrow text-text-primary">
+                    {s.violation_type ?? 'violation'}
+                  </span>
+                  {typeof s.risk === 'number' && (
+                    <span className="font-mono text-[10px] text-risk-medium">
+                      risk {Math.round(s.risk)}
+                    </span>
+                  )}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </motion.div>
+  )
+}
+
+function EvidenceLightbox({ snapshot, onClose }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      onClick={onClose}
+      className="fixed inset-0 z-50 grid place-items-center bg-black/85 p-6"
+    >
+      <motion.div
+        initial={{ scale: 0.96, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.98, opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        onClick={(e) => e.stopPropagation()}
+        className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded border border-border bg-surface-1"
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <div className="flex items-center gap-3 font-mono text-[11px] text-text-secondary">
+            <span className="uppercase tracking-eyebrow text-text-muted">
+              evidence
+            </span>
+            <span>{snapshot.violation_type ?? 'violation'}</span>
+            {typeof snapshot.risk === 'number' && (
+              <span className="text-risk-medium">
+                · risk {Math.round(snapshot.risk)}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-text-muted hover:bg-surface-3 hover:text-text-primary"
+            aria-label="Close"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+        <img
+          src={`data:image/jpeg;base64,${snapshot.data}`}
+          alt={`evidence for ${snapshot.violation_type}`}
+          className="max-h-[80vh] w-full -scale-x-100 object-contain"
+        />
+      </motion.div>
+    </motion.div>
   )
 }
 

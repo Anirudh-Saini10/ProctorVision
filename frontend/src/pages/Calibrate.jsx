@@ -26,7 +26,7 @@ const STEPS = [
 
 export default function Calibrate() {
   const navigate = useNavigate()
-  const { name, code, strictness, setCalibrated } = useSession()
+  const { name, code, strictness, attemptId, setCalibrated } = useSession()
   const {
     status,
     sessionId,
@@ -34,20 +34,26 @@ export default function Calibrate() {
     calibrationComplete,
     startSession,
     sendFrame,
+    reset,
   } = useWS()
 
   const camRef = useRef(null)
   const [stepIdx, setStepIdx] = useState(0)
   const [streamActive, setStreamActive] = useState(false)
 
-  // Kick off WS + session_start as soon as page mounts
+  // Kick off WS + session_start as soon as page mounts.
+  // NOTE: depend on strictness.id (stable string), not the strictness object,
+  // because `deriveStrictness()` returns a new object every render and would
+  // otherwise infinite-loop this effect.
+  const strictnessId = strictness.id
   useEffect(() => {
     startSession({
       candidate_name: name,
       code,
-      strictness: strictness.id,
+      strictness: strictnessId,
+      attempt_id: attemptId,
     })
-  }, [startSession, name, code, strictness])
+  }, [startSession, name, code, strictnessId, attemptId])
 
   // Once session is started, begin streaming frames
   useEffect(() => {
@@ -82,14 +88,31 @@ export default function Calibrate() {
     onFrame: sendFrame,
   })
 
-  // Navigate forward once backend reports calibration complete
+  // When the backend reports calibration complete, we DON'T auto-redirect
+  // anymore — instead we show an explicit "Continue / Recalibrate" gate so
+  // a student who didn't follow the dots properly can redo their baseline.
   useEffect(() => {
-    if (calibrationComplete) {
-      setCalibrated(true)
-      const t = setTimeout(() => navigate('/student/exam', { replace: true }), 700)
-      return () => clearTimeout(t)
-    }
-  }, [calibrationComplete, navigate, setCalibrated])
+    if (calibrationComplete) setCalibrated(true)
+  }, [calibrationComplete, setCalibrated])
+
+  const handleContinue = () => navigate('/student/exam', { replace: true })
+
+  const handleRecalibrate = () => {
+    // startSession() internally calls reset() which clears sessionId,
+    // calibration, calibrationComplete etc. The sessionId→streamActive
+    // effect will re-arm the frame streamer as soon as the new session
+    // is registered, and the sessionId-keyed reticle effect will restart
+    // the dot dance automatically.
+    setCalibrated(false)
+    setStepIdx(0)
+    setStreamActive(false)
+    startSession({
+      candidate_name: name,
+      code,
+      strictness: strictnessId,
+      attempt_id: attemptId,
+    })
+  }
 
   const step = STEPS[Math.min(stepIdx, STEPS.length - 1)]
   const pct = calibration?.progress != null ? calibration.progress : 0
@@ -107,20 +130,25 @@ export default function Calibrate() {
 
   return (
     <PageShell>
-      <section className="mx-auto flex max-w-6xl flex-col items-center px-6 py-12">
+      <section className="mx-auto flex max-w-6xl flex-col items-center px-6 py-6">
         <p className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
           calibration · {wsLabel}
         </p>
-        <h1 className="mt-3 text-2xl font-medium tracking-tightest text-text-primary">
+        <h1 className="mt-2 text-2xl font-medium tracking-tightest text-text-primary">
           {calibrationComplete ? 'Calibration complete.' : step.label}
         </h1>
+        {!calibrationComplete && (
+          <p className="mt-1 text-[12px] text-text-muted">
+            Dot sequence: <span className="font-mono text-text-secondary">
+              center → top-left → top-right → bottom-right → bottom-left → hold neutral
+            </span>
+          </p>
+        )}
 
-        {/* stage */}
-        <div className="relative mt-8 aspect-[16/9] w-full overflow-hidden rounded border border-border bg-surface-1">
-          <div className="absolute bottom-4 right-4 z-20 h-28 w-40 overflow-hidden rounded border border-border-strong">
-            <WebcamFeed ref={camRef} />
-          </div>
-
+        {/* stage — capped at viewport height so instructions stay visible.
+           Webcam preview is rendered OUTSIDE the stage so it doesn't obscure
+           the bottom-right calibration dot. */}
+        <div className="relative mt-4 w-full overflow-hidden rounded border border-border bg-surface-1" style={{ height: 'min(54vh, 480px)' }}>
           <div
             aria-hidden
             className="absolute inset-0 opacity-30"
@@ -158,17 +186,55 @@ export default function Calibrate() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.4 }}
-                className="absolute inset-0 grid place-items-center"
+                className="absolute inset-0 grid place-items-center bg-bg-base/80 backdrop-blur-sm"
               >
-                <div className="font-mono text-[11px] uppercase tracking-eyebrow text-risk-low">
-                  baseline captured · proceeding to session
+                <div className="flex max-w-md flex-col items-center gap-4 p-6 text-center">
+                  <div className="font-mono text-[11px] uppercase tracking-eyebrow text-risk-low">
+                    baseline captured
+                  </div>
+                  <h2 className="text-xl font-medium tracking-tightest text-text-primary">
+                    Did the calibration go well?
+                  </h2>
+                  <p className="text-[13px] leading-relaxed text-text-secondary">
+                    If your head moved a lot, you missed a dot, or you weren't
+                    paying attention — <span className="font-semibold text-text-primary">recalibrate now</span>.
+                    A bad baseline will incorrectly flag your natural gaze
+                    throughout the entire exam.
+                  </p>
+                  <div className="mt-2 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={handleRecalibrate}
+                      className="rounded border border-border bg-surface-2 px-4 py-2 text-[13px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+                    >
+                      Recalibrate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleContinue}
+                      className="rounded border border-accent bg-accent px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover"
+                    >
+                      Continue to exam
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        <div className="mt-6 w-full">
+        {/* preview strip below the stage — never overlaps a calibration dot */}
+        <div className="mt-3 flex w-full items-center gap-3">
+          <div className="h-16 w-24 flex-shrink-0 overflow-hidden rounded border border-border-strong">
+            <WebcamFeed ref={camRef} />
+          </div>
+          <p className="text-[12px] text-text-muted">
+            Keep your face centered in the preview. Move only your eyes between dots
+            — your head should stay still.
+          </p>
+        </div>
+
+        <div className="mt-4 w-full">
           <div className="h-px w-full bg-border">
             <motion.div
               animate={{ width: `${pct * 100}%` }}
@@ -185,10 +251,6 @@ export default function Calibrate() {
           </div>
         </div>
 
-        <p className="mt-8 max-w-md text-center text-[12px] text-text-muted">
-          Keep your face centered in the small preview. Move only your eyes between
-          dots. We use this to learn what {`"normal"`} looks like for you.
-        </p>
       </section>
     </PageShell>
   )

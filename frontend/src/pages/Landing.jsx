@@ -47,15 +47,15 @@ export default function Landing() {
               transition={{ ...fadeUp.transition, delay: 0.15 }}
               className="mt-10 flex flex-wrap items-center gap-3"
             >
-              <Link to="/login" className="btn-primary group">
-                Begin proctored session
+              <Link to="/join" className="btn-primary group">
+                Join an exam
                 <ArrowUpRight
                   size={14}
                   strokeWidth={2}
                   className="transition-transform duration-300 ease-linear group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
                 />
               </Link>
-              <Link to="/login" className="btn-secondary">
+              <Link to="/proctor/login" className="btn-secondary">
                 Proctor sign-in
               </Link>
             </motion.div>

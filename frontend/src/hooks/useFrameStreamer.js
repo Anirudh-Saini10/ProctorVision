@@ -71,5 +71,5 @@ export default function useFrameStreamer({
 
     rafRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [active, fps, maxWidth, quality, videoRef])
+  }, [active, fps, maxWidth, quality])
 }

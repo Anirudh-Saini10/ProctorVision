@@ -41,19 +41,36 @@ LOWER_LIP_MID_1 = 178
 UPPER_LIP_MID_2 = 311
 LOWER_LIP_MID_2 = 402
 
-# MAR threshold — above this means mouth is significantly open (likely talking)
-# Real-world MAR during speech is typically 0.25-0.50, resting is 0.05-0.15
-MAR_THRESHOLD = 0.17
+# MAR threshold — above this means mouth is open enough to plausibly be
+# speaking. Empirical MAR ranges on this codebase's pipeline:
+#   - resting / closed mouth: 0.05 - 0.15
+#   - smiling / mild expression: 0.15 - 0.20
+#   - conversational speech: 0.25 - 0.40
+#   - laughing / yawning: 0.40+
+#
+# History: 0.17 was way too sensitive (caught smiling). 0.32 was too
+# strict (missed soft conversational speech, which is exactly what
+# cheating whispering looks like). 0.26 sits in the gap above smiling
+# but inside the bottom of normal speaking range.
+MAR_THRESHOLD = 0.26
 
-# Minimum sustained duration before logging a talking violation (seconds)
-SUSTAINED_DURATION = 4.0
+# Minimum sustained duration before logging a talking violation (seconds).
+# Was 6.0 — that allowed an entire spoken question ("what's the answer
+# to question three?", ~2.5s) to slip through. 3.0s still safely
+# rejects yawns (~1.5s), brief vocalisations ("uh", "hmm", coughs),
+# and single-word exclamations, while catching any real cheating
+# utterance which always lasts longer than a typical question.
+SUSTAINED_DURATION = 3.0
 
 # Cooldown between violations of the same type (seconds)
 VIOLATION_COOLDOWN = 3.0
 
-# Grace period — brief dips below threshold during speech don't reset the timer
-# (MAR naturally fluctuates during talking)
-SPEAKING_GRACE_PERIOD = 0.5
+# Grace period — brief dips below threshold during speech don't reset
+# the timer. Word pauses ("yo... please... tell me...") run 200-500ms.
+# Was 0.5s — borderline; a slow speaker with 600ms pauses had their
+# sustain timer reset between every word. 0.8s comfortably covers
+# natural speech rhythm.
+SPEAKING_GRACE_PERIOD = 0.8
 
 
 class LipMovementDetector:
@@ -249,6 +266,55 @@ class LipMovementDetector:
             "upper_inner": _get_point(UPPER_LIP_INNER),
             "lower_inner": _get_point(LOWER_LIP_INNER),
         }
+
+    def is_mouth_active(self,
+                        active_mar=0.18,
+                        min_variance=0.0006,
+                        min_samples=3):
+        """
+        Best-effort answer to "did the mouth move in the recent past?"
+
+        Used to gate audio-driven violations. Audio alone produces too many
+        false positives (chair scrape, fan kick, dog bark, keyboard clack
+        all push RMS above the speaking threshold), so the websocket
+        handler only logs `lip_movement` when the mic AND the mouth
+        agree.
+
+        We accept either of two signals as "mouth was active":
+
+          1. Any recent MAR sample exceeded `active_mar` — a lower bar
+             than the speaking-threshold (parted lips, whispering, the
+             beginning of a syllable). Lower than MAR_THRESHOLD on
+             purpose; if we waited for full talking-MAR we'd lose
+             quiet whisperers.
+          2. The MAR sample variance exceeded `min_variance` — the
+             mouth is *moving*, even if it never opened wide. This
+             catches lip-syncing / whispered cheating where the mouth
+             barely separates.
+
+        Args:
+            active_mar: lower MAR bound for "lips clearly parted".
+            min_variance: minimum sample variance over the history
+                          buffer to count as "lips moving".
+            min_samples: don't trust the answer until we've seen this
+                         many frames since session start.
+
+        Returns:
+            bool
+        """
+        if len(self.mar_history) < min_samples:
+            # Not enough data yet — fail-OPEN (treat as active) so we
+            # don't suppress real violations during the first ~half
+            # second of an exam. Audio bursts that early are almost
+            # always real (the candidate testing their mic).
+            return True
+
+        hist = np.asarray(self.mar_history, dtype=float)
+        if float(hist.max()) >= active_mar:
+            return True
+        if float(hist.var()) >= min_variance:
+            return True
+        return False
 
     def reset(self):
         """Reset the detector state for a new session."""

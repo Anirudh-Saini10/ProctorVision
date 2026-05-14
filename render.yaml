@@ -1,0 +1,53 @@
+# Render.com blueprint for the ProctorVision backend.
+#
+# Usage:
+#   1. Push this repo to GitHub.
+#   2. In Render: New → Blueprint → connect your GitHub repo.
+#   3. Render reads this file and provisions everything below.
+#
+# What this creates:
+#   - One web service (FastAPI + uvicorn + ML stack)
+#   - One persistent disk mounted at /var/data for the SQLite file
+#     and any future evidence-snapshot exports
+#
+# The frontend is NOT on Render — it lives on Vercel and points at
+# this service via VITE_API_URL.
+
+services:
+  - type: web
+    name: proctorvision-api
+    runtime: python
+    # Free plan works for the demo. Bump to "starter" ($7/mo) if cold
+    # starts on free tier become annoying — free instances sleep after
+    # 15 min of inactivity and take ~30s to wake.
+    plan: free
+    region: oregon
+    rootDir: backend
+    # Pre-bake ML model weights into the build so the first request
+    # doesn't time out downloading yolov8n.pt (which is gitignored on
+    # some setups but we commit it here, see backend/yolov8n.pt).
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Strong random secret for JWT signing. Render generates it once
+      # and reuses across deploys, so existing tokens survive redeploys.
+      - key: JWT_SECRET
+        generateValue: true
+      # SQLite file on the persistent disk so it survives redeploys.
+      - key: DATABASE_URL
+        value: sqlite:////var/data/proctorvision.db
+      # Set this to your Vercel frontend URL after the first frontend
+      # deploy. Comma-separated for multiple (e.g. preview + prod).
+      - key: FRONTEND_ORIGINS
+        sync: false
+      # Disable mediapipe / TF chatter in logs.
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "3"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    disk:
+      name: proctorvision-data
+      mountPath: /var/data
+      sizeGB: 1

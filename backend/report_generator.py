@@ -37,6 +37,7 @@ VIOLATION_DISPLAY_NAMES = {
     "lip_movement": "Lip Movement (Talking)",
     "suspicious_object": "Suspicious Object (Book/Notes)",
     "secondary_device": "Secondary Device Detected",
+    "manual_flag": "Manual Flag (Proctor)",
 }
 
 
@@ -117,8 +118,15 @@ def generate_report(session_summary):
         "ScoreStyle",
         parent=styles["Title"],
         fontSize=48,
+        # ReportLab's default leading is fontSize * 1.2 = 57.6 — but the
+        # default Title style overrides it tighter, which made the big
+        # "NN/100" overlap the "HIGH RISK" label rendered immediately
+        # below. Explicit leading + generous spaceAfter fixes the
+        # collision.
+        leading=58,
         alignment=TA_CENTER,
-        spaceAfter=4,
+        spaceBefore=4,
+        spaceAfter=12,
     )
 
     # --- Build document elements ---
@@ -139,12 +147,16 @@ def generate_report(session_summary):
     duration_fmt = session_summary.get("duration_formatted", "00:00")
     start_dt = datetime.fromtimestamp(start_time) if start_time else datetime.now()
 
+    peak_risk = session_summary.get("peak_risk",
+                                    session_summary.get("risk_score", 0))
+
     info_data = [
         ["Session ID", session_id[:16] + "..." if len(session_id) > 16 else session_id],
         ["Date", start_dt.strftime("%B %d, %Y")],
         ["Time", start_dt.strftime("%I:%M %p")],
         ["Duration", duration_fmt],
         ["Total Violations", str(session_summary.get("total_violations", 0))],
+        ["Peak Live Risk", f"{peak_risk}/100"],
     ]
 
     info_table = Table(info_data, colWidths=[120, 350])
@@ -159,9 +171,30 @@ def generate_report(session_summary):
     elements.append(info_table)
     elements.append(Spacer(1, 16))
 
-    # Integrity Score (big and prominent)
-    risk_score = session_summary.get("risk_score", 100)
-    risk_level, risk_color = _get_risk_level(risk_score)
+    # Integrity Score (big and prominent).
+    #
+    # IMPORTANT: There are TWO scores in `session_summary`:
+    #   - risk_score / peak_risk: 0 = clean, 100 = very risky (live metric)
+    #   - integrity_score:        100 = clean, 0 = very bad (cumulative)
+    #
+    # Earlier versions of this function read `risk_score` here, which is
+    # 0=clean — but `_get_risk_level()` expects 100=clean. The result was
+    # that every clean session was reported as "CRITICAL RISK" and every
+    # bad session as "LOW RISK". We use `integrity_score` here because:
+    #   1. It's the value the thresholds in `_get_risk_level()` were
+    #      designed for.
+    #   2. A monotonic "how much penalty did this candidate accrue" is
+    #      a more sensible final report metric than "what was the worst
+    #      momentary live-decay value" — the live one can decay back to
+    #      0 even after a serious incident.
+    #
+    # `peak_risk` is still surfaced separately further down so reviewers
+    # can see the worst momentary state as well.
+    integrity_score = session_summary.get(
+        "integrity_score",
+        max(0, 100 - session_summary.get("risk_score", 0)),
+    )
+    risk_level, risk_color = _get_risk_level(integrity_score)
 
     score_style_colored = ParagraphStyle(
         "ScoreColored",
@@ -178,7 +211,7 @@ def generate_report(session_summary):
     elements.append(Paragraph("SESSION INTEGRITY SCORE", ParagraphStyle(
         "ScoreLabel", parent=subtitle_style, fontSize=12, spaceAfter=4,
     )))
-    elements.append(Paragraph(f"{risk_score}/100", score_style_colored))
+    elements.append(Paragraph(f"{integrity_score}/100", score_style_colored))
     elements.append(Paragraph(risk_level, ParagraphStyle(
         "RiskLevel", parent=subtitle_style,
         fontSize=14, textColor=risk_color,

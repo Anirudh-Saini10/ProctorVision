@@ -4,22 +4,35 @@ ProctorVision — FastAPI Server
 Main entry point for the ProctorVision backend.
 
 Endpoints:
-    - WS  /ws                     → WebSocket for real-time frame processing
-    - GET /api/health              → Health check
-    - GET /api/report/{session_id} → Download PDF report (Phase 9)
+    - WS  /ws                       → student WebSocket (frame stream)
+    - WS  /ws/proctor               → proctor WebSocket (live console)
+    - GET /api/health               → Health check
+    - GET /api/sessions             → Live + ended session list (proctor dashboard)
+    - GET /api/report/{session_id}  → Download PDF report
+    - /api/auth/*                   → proctor register / login / me
+    - /api/exams/*                  → exam authoring + lookup-by-code
+    - /api/attempts/*               → candidate attempt lifecycle
 
 Run with:
     uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import os
+
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
-from websocket_handler import WebSocketHandler
+from db import init_db
 from report_generator import generate_report
+from routes.attempts import router as attempts_router
+from routes.auth import router as auth_router
+from routes.exams import router as exams_router
+from websocket_handler import WebSocketHandler
 
-# Store session summaries for report generation
+# Store session summaries for report generation. Held in-process for
+# fast access during a session; the canonical record is also persisted
+# onto the Attempt row at submit time (see websocket_handler).
 session_store = {}  # {session_id: summary_dict}
 
 # --- App setup ---
@@ -30,15 +43,17 @@ app = FastAPI(
 )
 
 # --- CORS configuration ---
-# Allow the React dev server and future production domains
-ALLOWED_ORIGINS = [
-    "http://localhost:5173",      # Vite dev server
-    "http://localhost:3000",      # Alternate dev port
+# Dev defaults + any extra origins from FRONTEND_ORIGINS env var
+# (comma-separated). On Render, set FRONTEND_ORIGINS to your static
+# site URL so the browser can call the API.
+DEFAULT_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:3000",
-    # Production domains will be added later:
-    # "https://proctorvision.vercel.app",
 ]
+_extra = [o.strip() for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o.strip()]
+ALLOWED_ORIGINS = DEFAULT_ORIGINS + _extra
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,6 +65,11 @@ app.add_middleware(
 
 # --- WebSocket handler (shared instance, shares session_store with /api/report) ---
 ws_handler = WebSocketHandler(session_store=session_store)
+
+# --- Routers ---
+app.include_router(auth_router)
+app.include_router(exams_router)
+app.include_router(attempts_router)
 
 
 # --- Routes ---
@@ -66,20 +86,9 @@ async def health_check():
 
 @app.get("/api/report/{session_id}")
 async def download_report(session_id: str):
-    """
-    Download a PDF integrity report for a completed session.
-
-    Args:
-        session_id: The session UUID returned at session start.
-
-    Returns:
-        PDF file as downloadable attachment.
-    """
+    """Download a PDF integrity report for a completed session."""
     if session_id not in session_store:
-        return JSONResponse(
-            {"error": "Session not found"},
-            status_code=404,
-        )
+        return JSONResponse({"error": "Session not found"}, status_code=404)
 
     summary = session_store[session_id]
     pdf_bytes = generate_report(summary)
@@ -95,31 +104,19 @@ async def download_report(session_id: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time frame processing.
-
-    Protocol:
-    1. Client connects
-    2. Client sends { "type": "session_start" }
-    3. Server starts calibration phase (10 seconds)
-    4. Client streams frames: { "type": "frame", "data": "<base64>", "timestamp": <ms> }
-    5. Server streams back violations, risk scores, calibration updates
-    6. Client sends { "type": "session_end" } to finish
-    7. Server returns session summary with final risk score
-    """
+    """WebSocket endpoint for real-time frame processing (candidate side)."""
     await ws_handler.handle_connection(websocket)
 
 
 @app.websocket("/ws/proctor")
 async def proctor_websocket(websocket: WebSocket):
-    """WebSocket endpoint for proctor console — subscribes to a live session
-    and receives snapshots, violations, and risk-score updates."""
+    """WebSocket endpoint for proctor console."""
     await ws_handler.handle_proctor_connection(websocket)
 
 
 @app.get("/api/sessions")
 async def list_sessions():
-    """List currently live proctoring sessions for the proctor dashboard."""
+    """List currently live + recently ended proctoring sessions."""
     return JSONResponse({"sessions": ws_handler.list_active_sessions()})
 
 
@@ -127,6 +124,7 @@ async def list_sessions():
 
 @app.on_event("startup")
 async def startup_event():
+    init_db()
     print()
     print("=" * 60)
     print("  ProctorVision Backend — Starting up")

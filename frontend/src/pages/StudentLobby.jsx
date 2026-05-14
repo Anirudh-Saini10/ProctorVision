@@ -1,16 +1,23 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, AlertTriangle, Target } from 'lucide-react'
 import PageShell from '../components/PageShell.jsx'
 import EnvironmentCheck from '../components/EnvironmentCheck.jsx'
 import RulesList from '../components/RulesList.jsx'
 import StrictnessBadge from '../components/StrictnessBadge.jsx'
-import { useSession } from '../state/SessionContext.jsx'
+import { useSession, STRICTNESS } from '../state/SessionContext.jsx'
 
 export default function StudentLobby() {
   const navigate = useNavigate()
-  const { name, code, strictness, consented, setConsented } = useSession()
+  const {
+    name,
+    code,
+    strictness,
+    setStrictnessOverride,
+    consented,
+    setConsented,
+  } = useSession()
   const [envReady, setEnvReady] = useState(false)
 
   const canStart = envReady && consented
@@ -41,6 +48,28 @@ export default function StudentLobby() {
               <StrictnessBadge strictness={strictness} />
             </div>
           </div>
+          <div>
+            <p className="label">Override (testing)</p>
+            <div className="mt-1 flex gap-1.5">
+              {Object.values(STRICTNESS).map((s) => {
+                const active = strictness.id === s.id
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setStrictnessOverride(s.id)}
+                    className={`rounded border px-2.5 py-1 font-mono text-[10px] uppercase tracking-eyebrow transition-colors ${
+                      active
+                        ? 'border-accent bg-accent/10 text-accent'
+                        : 'border-border bg-surface-1 text-text-muted hover:border-border-strong hover:text-text-secondary'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         </motion.div>
 
         <div className="mt-10 grid gap-10 lg:grid-cols-12">
@@ -64,7 +93,88 @@ export default function StudentLobby() {
               session. Violations are logged with timestamps and severity.
             </motion.p>
 
-            <div className="mt-8">
+            {/* CRITICAL: phone / external-device warning */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-6 rounded border-l-2 border-risk-high bg-risk-high/5 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle
+                  size={18}
+                  strokeWidth={2}
+                  className="mt-0.5 flex-shrink-0 text-risk-high"
+                />
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-eyebrow text-risk-high">
+                    Zero-tolerance violations
+                  </p>
+                  <p className="mt-2 text-[14px] font-semibold leading-relaxed text-text-primary">
+                    NO PHONES OR SECONDARY SCREENS within camera view OR within
+                    arm's reach. NO OTHER PEOPLE in the room. NO TAB SWITCHING.
+                    NO LEAVING THE FRAME.
+                  </p>
+                  <p className="mt-2 text-[12.5px] leading-relaxed text-text-secondary">
+                    These trigger <span className="font-semibold text-risk-high">CRITICAL</span> violations
+                    and may result in <span className="font-semibold text-risk-high">automatic disqualification</span> of
+                    your exam — regardless of strictness profile.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* CRITICAL: calibration emphasis */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-3 rounded border-l-2 border-accent bg-accent/5 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <Target
+                  size={18}
+                  strokeWidth={2}
+                  className="mt-0.5 flex-shrink-0 text-accent"
+                />
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-eyebrow text-accent">
+                    Calibration is critical
+                  </p>
+                  <p className="mt-2 text-[14px] font-semibold leading-relaxed text-text-primary">
+                    DO THE 10-SECOND CALIBRATION PROPERLY. Sit straight, keep your
+                    head still, and follow each dot with your EYES ONLY.
+                  </p>
+                  <p className="mt-2 text-[12.5px] leading-relaxed text-text-secondary">
+                    A bad calibration produces a skewed baseline and will
+                    incorrectly flag your natural gaze as cheating throughout
+                    the entire exam. You will be offered a chance to
+                    <span className="font-semibold text-text-primary"> recalibrate</span> if
+                    the result looks wrong — use it.
+                  </p>
+                  <div className="mt-3 rounded border border-border bg-bg-base/40 p-3">
+                    <p className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
+                      What to expect — dot sequence
+                    </p>
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-text-secondary">
+                      A blue dot will appear in the following order. Move
+                      <span className="font-semibold text-text-primary"> only your eyes</span> to
+                      track it — keep your head still:
+                    </p>
+                    <ol className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11.5px] text-text-secondary sm:grid-cols-3">
+                      <li>1. center</li>
+                      <li>2. top-left</li>
+                      <li>3. top-right</li>
+                      <li>4. bottom-right</li>
+                      <li>5. bottom-left</li>
+                      <li>6. hold neutral</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+
+            <div className="mt-6">
               <RulesList />
             </div>
 

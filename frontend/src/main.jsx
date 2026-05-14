@@ -5,15 +5,18 @@ import './index.css'
 import App from './App.jsx'
 import { SessionProvider } from './state/SessionContext.jsx'
 import { WebSocketProvider } from './state/WebSocketContext.jsx'
+import { AuthProvider } from './state/AuthContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      <SessionProvider>
-        <WebSocketProvider>
-          <App />
-        </WebSocketProvider>
-      </SessionProvider>
+      <AuthProvider>
+        <SessionProvider>
+          <WebSocketProvider>
+            <App />
+          </WebSocketProvider>
+        </SessionProvider>
+      </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
 )

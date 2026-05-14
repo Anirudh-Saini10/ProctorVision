@@ -56,6 +56,11 @@ export function WebSocketProvider({ children }) {
   const [violations, setViolations] = useState([])
   const [lastFrameInfo, setLastFrameInfo] = useState(null)
   const [summary, setSummary] = useState(null)
+  // Set when the proctor force-ends the candidate's session — the
+  // Exam page watches this and navigates to /student/done so the
+  // candidate sees the same end-of-session experience as if they
+  // ended it themselves.
+  const [forceEndedReason, setForceEndedReason] = useState(null)
 
   const reset = useCallback(() => {
     setSessionId(null)
@@ -65,6 +70,7 @@ export function WebSocketProvider({ children }) {
     setViolations([])
     setLastFrameInfo(null)
     setSummary(null)
+    setForceEndedReason(null)
   }, [])
 
   const connect = useCallback(() => {
@@ -118,6 +124,16 @@ export function WebSocketProvider({ children }) {
             r(msg.summary)
           }
           break
+        case 'force_end':
+          // Proctor pushed the End Session button. Mirror what the
+          // candidate would do themselves: dispatch session_end so the
+          // backend returns the final summary, then surface the reason
+          // for the Exam page to redirect to /student/done.
+          setForceEndedReason(msg.reason || 'Ended by proctor')
+          if (wsRef.current && wsRef.current.readyState === 1) {
+            wsRef.current.send(JSON.stringify({ type: 'session_end' }))
+          }
+          break
         default:
           break
       }
@@ -142,6 +158,12 @@ export function WebSocketProvider({ children }) {
         candidate_name: meta.candidate_name ?? null,
         code: meta.code ?? null,
         strictness: meta.strictness ?? null,
+        // Optional: link this WS-bound proctoring session to the
+        // persisted Attempt row created by /api/attempts. Backend
+        // writes the integrity summary back onto that row at
+        // session_end so the proctor's exam-attempts view shows the
+        // final score next to the candidate's name.
+        attempt_id: meta.attempt_id ?? null,
       })
     if (ws.readyState === 1) dispatch()
     else ws.addEventListener('open', dispatch, { once: true })
@@ -157,6 +179,18 @@ export function WebSocketProvider({ children }) {
   const sendTabSwitch = useCallback(
     (direction = 'blur') => {
       send({ type: 'tab_switch', direction, timestamp: Date.now() })
+    },
+    [send]
+  )
+
+  const sendAudioActivity = useCallback(
+    (isSpeaking, audioLevel = 0) => {
+      send({
+        type: 'audio_activity',
+        is_speaking: isSpeaking,
+        audio_level: audioLevel,
+        timestamp: Date.now(),
+      })
     },
     [send]
   )
@@ -199,10 +233,12 @@ export function WebSocketProvider({ children }) {
       violations,
       lastFrameInfo,
       summary,
+      forceEndedReason,
       connect,
       startSession,
       sendFrame,
       sendTabSwitch,
+      sendAudioActivity,
       endSession,
       reset,
       close,
@@ -216,10 +252,12 @@ export function WebSocketProvider({ children }) {
       violations,
       lastFrameInfo,
       summary,
+      forceEndedReason,
       connect,
       startSession,
       sendFrame,
       sendTabSwitch,
+      sendAudioActivity,
       endSession,
       reset,
       close,

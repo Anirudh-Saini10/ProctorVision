@@ -19,6 +19,9 @@ export default function useProctorSocket() {
   const [latestSnapshot, setLatestSnapshot] = useState(null)
   const [liveRisk, setLiveRisk] = useState(0)
   const [events, setEvents] = useState([])
+  // Persisted gallery of violation evidence frames. Newest first.
+  // Each entry: { id, violation_type, data, timestamp, risk }
+  const [evidenceSnapshots, setEvidenceSnapshots] = useState([])
   const frameCounter = useRef(0)
 
   const send = useCallback((obj) => {
@@ -54,12 +57,27 @@ export default function useProctorSocket() {
             code: msg.code,
             strictness: msg.strictness,
             risk: msg.risk,
+            ended: Boolean(msg.ended),
+            ended_reason: msg.ended_reason || null,
           })
           setLatestSnapshot(null)
           setEvents([])
+          setEvidenceSnapshots([])
           frameCounter.current = 0
+          // Seed the live risk gauge from the subscribed payload so
+          // ended-session replays don't start at zero. (For live
+          // sessions a `risk_score` message will quickly overwrite
+          // this anyway.)
+          setLiveRisk(msg.risk ?? 0)
           break
         case 'snapshot':
+        case 'evidence_snapshot':
+          // Both produce the same on-screen update — the only
+          // difference is that `evidence_snapshot` is sent immediately
+          // when a violation fires (showing the proctor exactly what
+          // tripped the alert), while `snapshot` is the periodic
+          // ~1fps refresh. We bump the frame counter on both so the
+          // "frame NNNN" indicator advances naturally.
           frameCounter.current += 1
           setLatestSnapshot({
             data: msg.data,
@@ -67,7 +85,33 @@ export default function useProctorSocket() {
             risk: msg.risk,
             face_detected: msg.face_detected,
             frame: frameCounter.current,
+            evidence_for: msg.violation_type || null,
           })
+          // Persist evidence snapshots in their own gallery so the
+          // proctor can review every violation frame after the fact,
+          // not just the most recent one. Plain `snapshot` (periodic
+          // ~1fps refresh) is intentionally NOT persisted — only
+          // violation-attached frames go into the evidence wall.
+          if (msg.type === 'evidence_snapshot') {
+            setEvidenceSnapshots((prev) => {
+              // De-duplicate by violation_id — the backend replays
+              // archived snapshots on (re)subscribe, so without this
+              // a refresh would multiply them.
+              const id = msg.violation_id
+              if (id && prev.some((s) => s.id === id)) return prev
+              return [
+                {
+                  id: id ?? `${msg.timestamp}-${msg.violation_type}`,
+                  violation_id: id,
+                  violation_type: msg.violation_type,
+                  data: msg.data,
+                  timestamp: msg.timestamp,
+                  risk: msg.risk,
+                },
+                ...prev,
+              ].slice(0, 60)
+            })
+          }
           break
         case 'risk_score':
           setLiveRisk(msg.score)
@@ -110,6 +154,14 @@ export default function useProctorSocket() {
   )
   const unsubscribe = useCallback(() => send({ type: 'unsubscribe' }), [send])
   const reload = useCallback(() => send({ type: 'list' }), [send])
+  const manualFlag = useCallback(
+    (note) => send({ type: 'manual_flag', note: note ?? '' }),
+    [send]
+  )
+  const forceEnd = useCallback(
+    (reason) => send({ type: 'force_end', reason: reason ?? 'Ended by proctor' }),
+    [send]
+  )
 
   return {
     status,
@@ -118,8 +170,11 @@ export default function useProctorSocket() {
     latestSnapshot,
     liveRisk,
     events,
+    evidenceSnapshots,
     subscribe,
     unsubscribe,
     reload,
+    manualFlag,
+    forceEnd,
   }
 }
