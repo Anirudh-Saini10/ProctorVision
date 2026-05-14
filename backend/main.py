@@ -53,7 +53,11 @@ DEFAULT_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 _extra = [o.strip() for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o.strip()]
+# Allow all origins when deployed — auth is JWT header-based, not cookies,
+# so wildcard CORS is safe and removes env-var configuration friction.
 ALLOWED_ORIGINS = DEFAULT_ORIGINS + _extra
+if not _extra:
+    ALLOWED_ORIGINS.append("*")
 
 app.add_middleware(
     CORSMiddleware,
