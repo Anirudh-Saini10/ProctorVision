@@ -4,6 +4,8 @@ WORKDIR /app
 
 # Install Node.js only — python:3.11 base already has all system libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*

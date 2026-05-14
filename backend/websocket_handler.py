@@ -211,7 +211,7 @@ class WebSocketHandler:
             # candidate disconnected ungracefully.
             sid = getattr(pipeline, "_session_id", None)
             attempt_id = getattr(pipeline, "_attempt_id", None)
-            if pipeline._session_active:
+            if pipeline and pipeline._session_active:
                 try:
                     summary = pipeline.end_session()
                     if sid:
