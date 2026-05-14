@@ -44,12 +44,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 # ── passwords ----------------------------------------------------------
 
 def hash_password(plain: str) -> str:
-    return _pwd_context.hash(plain)
+    # bcrypt has a hard 72-byte limit on password length
+    return _pwd_context.hash(plain[:72])
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return _pwd_context.verify(plain, hashed)
+        return _pwd_context.verify(plain[:72], hashed)
     except Exception:
         return False
 
