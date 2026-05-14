@@ -61,6 +61,7 @@ export function WebSocketProvider({ children }) {
   // candidate sees the same end-of-session experience as if they
   // ended it themselves.
   const [forceEndedReason, setForceEndedReason] = useState(null)
+  const [errorMessage, setErrorMessage] = useState(null)
 
   const reset = useCallback(() => {
     setSessionId(null)
@@ -71,6 +72,7 @@ export function WebSocketProvider({ children }) {
     setLastFrameInfo(null)
     setSummary(null)
     setForceEndedReason(null)
+    setErrorMessage(null)
   }, [])
 
   const connect = useCallback(() => {
@@ -133,6 +135,9 @@ export function WebSocketProvider({ children }) {
           if (wsRef.current && wsRef.current.readyState === 1) {
             wsRef.current.send(JSON.stringify({ type: 'session_end' }))
           }
+          break
+        case 'error':
+          setErrorMessage(msg.message || 'Unknown server error')
           break
         default:
           break
@@ -234,6 +239,7 @@ export function WebSocketProvider({ children }) {
       lastFrameInfo,
       summary,
       forceEndedReason,
+      errorMessage,
       connect,
       startSession,
       sendFrame,
@@ -253,6 +259,7 @@ export function WebSocketProvider({ children }) {
       lastFrameInfo,
       summary,
       forceEndedReason,
+      errorMessage,
       connect,
       startSession,
       sendFrame,

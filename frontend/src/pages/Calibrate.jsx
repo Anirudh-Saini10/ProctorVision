@@ -32,6 +32,7 @@ export default function Calibrate() {
     sessionId,
     calibration,
     calibrationComplete,
+    errorMessage,
     startSession,
     sendFrame,
     reset,
@@ -134,6 +135,11 @@ export default function Calibrate() {
         <p className="font-mono text-[10px] uppercase tracking-eyebrow text-text-muted">
           calibration · {wsLabel}
         </p>
+        {errorMessage && (
+          <div className="mt-2 rounded border border-risk-high bg-risk-high/10 px-4 py-2 text-[13px] text-risk-high">
+            {errorMessage}
+          </div>
+        )}
         <h1 className="mt-2 text-2xl font-medium tracking-tightest text-text-primary">
           {calibrationComplete ? 'Calibration complete.' : step.label}
         </h1>
