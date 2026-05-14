@@ -73,7 +73,9 @@ class CVPipeline:
         self.gaze = GazeEstimator()
         self.head_pose = HeadPoseEstimator()
         self.lip_detector = LipMovementDetector()
-        self.object_detector = ObjectDetector()
+        self.object_detector = ObjectDetector(
+            model_path=os.path.join(os.path.dirname(__file__), "yolov8n.pt")
+        )
         self.calibration = CalibrationManager()
         self.violation_logger = ViolationLogger()
 

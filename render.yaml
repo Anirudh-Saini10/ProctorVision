@@ -36,6 +36,11 @@ services:
         value: "3"
       - key: PYTHONUNBUFFERED
         value: "1"
+      # Prevent Ultralytics from trying to write config to a read-only path
+      - key: YOLO_CONFIG_DIR
+        value: /tmp/ultralytics
+      - key: ULTRALYTICS_DIR
+        value: /tmp/ultralytics
     disk:
       name: proctorvision-data
       mountPath: /var/data

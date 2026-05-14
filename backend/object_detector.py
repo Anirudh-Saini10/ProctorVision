@@ -21,7 +21,6 @@ Note: YOLOv8n model will be auto-downloaded on first run (~6MB).
 """
 
 import numpy as np
-from ultralytics import YOLO
 
 # COCO class IDs we care about
 COCO_CLASSES = {
@@ -93,8 +92,8 @@ class ObjectDetector:
             model_path: Path to YOLOv8n weights. Will auto-download
                        from Ultralytics hub if not found locally.
         """
-        self.model = YOLO(model_path)
-        self.model.fuse()  # Fuse Conv2d + BatchNorm2d for faster inference
+        self._model_path = model_path
+        self._model = None
 
         # Sustained-streak tracking for phone-shaped detections.
         # YOLOv8n at low confidence (0.30-0.40) catches more real phones
@@ -103,6 +102,14 @@ class ObjectDetector:
         # YOLO calls each at >= 0.30. The streak resets when no
         # phone-shaped class appears in a call.
         self._phone_streak_conf = 0.0  # peak confidence in last YOLO call
+
+    def _get_model(self):
+        """Lazy-load YOLO model to avoid heavy import at module load time."""
+        if self._model is None:
+            from ultralytics import YOLO
+            self._model = YOLO(self._model_path)
+            self._model.fuse()  # Fuse Conv2d + BatchNorm2d for faster inference
+        return self._model
 
     def detect(self, frame):
         """
@@ -126,7 +133,7 @@ class ObjectDetector:
                 - 'multi_face_violation': bool — True if person_count > 1
         """
         # Run YOLO inference with stream=False for single frame
-        results = self.model(frame, verbose=False, conf=INFERENCE_CONFIDENCE)
+        results = self._get_model()(frame, verbose=False, conf=INFERENCE_CONFIDENCE)
 
         detections = []
         person_count = 0
