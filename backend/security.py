@@ -18,10 +18,10 @@ import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlmodel import Session, select
 
 from db import get_session
@@ -34,8 +34,6 @@ JWT_SECRET = os.environ.get("JWT_SECRET") or "dev-only-change-me-in-production"
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRES_HOURS = int(os.environ.get("JWT_EXPIRES_HOURS", "12"))
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 # ``tokenUrl`` is purely for the OpenAPI docs button — actual login
 # happens via JSON POST to /api/auth/login.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -45,12 +43,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 
 def hash_password(plain: str) -> str:
     # bcrypt has a hard 72-byte limit on password length
-    return _pwd_context.hash(plain[:72])
+    return bcrypt.hashpw(plain[:72].encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return _pwd_context.verify(plain[:72], hashed)
+        return bcrypt.checkpw(plain[:72].encode(), hashed.encode())
     except Exception:
         return False
 
