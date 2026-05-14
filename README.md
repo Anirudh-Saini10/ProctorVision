@@ -1,3 +1,12 @@
+---
+title: ProctorVision
+emoji: 🎓
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # ProctorVision
 
 > AI-powered remote exam proctoring with real-time computer vision, live risk scoring, and full exam authoring — built for educators who need integrity without invigilation halls.
