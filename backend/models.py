@@ -30,6 +30,7 @@ import enum
 from datetime import datetime
 from typing import List, Optional
 
+from sqlalchemy.orm import Mapped
 from sqlmodel import Column, Field, JSON, Relationship, SQLModel
 
 
@@ -62,7 +63,7 @@ class Proctor(SQLModel, table=True):
     password_hash: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    exams: List["Exam"] = Relationship(back_populates="proctor")
+    exams: Mapped[List["Exam"]] = Relationship(back_populates="proctor")
 
 
 class Exam(SQLModel, table=True):
@@ -76,12 +77,12 @@ class Exam(SQLModel, table=True):
     status: ExamStatus = Field(default=ExamStatus.draft)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    proctor: Optional[Proctor] = Relationship(back_populates="exams")
-    questions: List["Question"] = Relationship(
+    proctor: Mapped[Optional["Proctor"]] = Relationship(back_populates="exams")
+    questions: Mapped[List["Question"]] = Relationship(
         back_populates="exam",
         sa_relationship_kwargs={"order_by": "Question.idx", "cascade": "all, delete-orphan"},
     )
-    attempts: List["Attempt"] = Relationship(back_populates="exam")
+    attempts: Mapped[List["Attempt"]] = Relationship(back_populates="exam")
 
 
 class Question(SQLModel, table=True):
@@ -96,7 +97,7 @@ class Question(SQLModel, table=True):
     correct_index: Optional[int] = None
     points: int = 1
 
-    exam: Optional[Exam] = Relationship(back_populates="questions")
+    exam: Mapped[Optional["Exam"]] = Relationship(back_populates="questions")
 
 
 class Attempt(SQLModel, table=True):
@@ -118,8 +119,8 @@ class Attempt(SQLModel, table=True):
     proctor_session_id: Optional[str] = Field(default=None, index=True)
     integrity_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
-    exam: Optional[Exam] = Relationship(back_populates="attempts")
-    answers: List["Answer"] = Relationship(
+    exam: Mapped[Optional["Exam"]] = Relationship(back_populates="attempts")
+    answers: Mapped[List["Answer"]] = Relationship(
         back_populates="attempt",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
@@ -135,4 +136,4 @@ class Answer(SQLModel, table=True):
     text: Optional[str] = None
     is_correct: Optional[bool] = None    # MCQ-only after grading
 
-    attempt: Optional[Attempt] = Relationship(back_populates="answers")
+    attempt: Mapped[Optional["Attempt"]] = Relationship(back_populates="answers")
