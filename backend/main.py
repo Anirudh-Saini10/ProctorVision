@@ -17,11 +17,12 @@ Run with:
     uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import traceback
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from db import init_db
@@ -112,11 +113,39 @@ async def list_sessions():
 
 
 # --- Static frontend (single-origin deploy) ---
-# When the frontend is built into ../frontend/dist, FastAPI serves it
-# as a fallback for any unmatched route (SPA behaviour via html=True).
 _static_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+# Global exception handler — logs full traceback so Render logs show the root cause
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    print("=" * 60)
+    print("UNHANDLED EXCEPTION")
+    print("=" * 60)
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    print("=" * 60)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "type": type(exc).__name__},
+    )
+
 if _static_dir.is_dir():
-    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
+    # Serve actual static files (assets, images, etc.) directly
+    for subpath in ["assets", "images", "fonts", "css", "js"]:
+        p = _static_dir / subpath
+        if p.is_dir():
+            app.mount(f"/{subpath}", StaticFiles(directory=str(p)), name=f"static_{subpath}")
+
+    # SPA catch-all: serve index.html for any non-API, non-WS route
+    @app.get("/{catchall:path}")
+    def serve_spa(catchall: str):
+        # These prefixes are handled by API routes above (registered earlier)
+        # but we guard them explicitly just in case.
+        if catchall.startswith("api/") or catchall.startswith("ws"):
+            raise HTTPException(status_code=404, detail="Not found")
+        index_file = _static_dir / "index.html"
+        if index_file.is_file():
+            return FileResponse(str(index_file))
+        raise HTTPException(status_code=404, detail="index.html not found")
 else:
     print(f"WARNING: Static frontend directory not found at {_static_dir}")
     print("API routes will work, but the React UI will not be served.")
@@ -127,6 +156,17 @@ else:
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    # Quick DB smoke-test — verifies tables exist and relationships resolve
+    from db import engine
+    from sqlmodel import Session, select
+    from models import Exam
+    try:
+        with Session(engine) as session:
+            session.exec(select(Exam)).first()
+        print("  DB: OK (smoke test passed)")
+    except Exception as exc:
+        print("  DB: SMOKE TEST FAILED —", exc)
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
     print()
     print("=" * 60)
     print("  ProctorVision Backend — Starting up")
