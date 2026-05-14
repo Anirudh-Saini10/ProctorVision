@@ -2,10 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install Node.js + npm for frontend build
+# Install Node.js + system libs OpenCV needs (libxcb is required even for headless)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     npm \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libxcb1 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (heavy layer — cache first)
