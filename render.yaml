@@ -23,7 +23,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
-        value: postgresql://proctorvision_user:C31YjAJOJr1v0uKqAhMRTaUvJMMk9Ehe@dpg-d82u1p0js32c7384rl80-a/proctorvision
+        value: postgresql+pg8000://proctorvision_user:C31YjAJOJr1v0uKqAhMRTaUvJMMk9Ehe@dpg-d82u1p0js32c7384rl80-a/proctorvision
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "3"
       - key: PYTHONUNBUFFERED

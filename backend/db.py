@@ -13,10 +13,13 @@ Environment variables:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Iterator
 
+print("[DB] importing sqlmodel...", flush=True)
 from sqlmodel import SQLModel, Session, create_engine
+print("[DB] sqlmodel ok", flush=True)
 
 
 def _default_sqlite_url() -> str:
@@ -28,16 +31,25 @@ def _default_sqlite_url() -> str:
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL") or _default_sqlite_url()
+print(f"[DB] DATABASE_URL = {DATABASE_URL!r}", flush=True)
 
 # SQLite needs ``check_same_thread=False`` because FastAPI runs
 # request handlers in a threadpool and we open one Session per request.
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    connect_args=_connect_args,
-)
+print("[DB] creating engine...", flush=True)
+try:
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,
+        connect_args=_connect_args,
+    )
+    print("[DB] engine created ok", flush=True)
+except Exception as exc:
+    print(f"[DB] ENGINE CREATION FAILED: {type(exc).__name__}: {exc}", flush=True)
+    import traceback
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    sys.exit(1)
 
 
 def init_db() -> None:

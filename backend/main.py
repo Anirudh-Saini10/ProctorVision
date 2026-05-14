@@ -17,20 +17,36 @@ Run with:
     uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import sys
 import traceback
 from pathlib import Path
 
+print("[STARTUP] main.py: importing fastapi...", flush=True)
 from fastapi import FastAPI, HTTPException, WebSocket
+print("[STARTUP] main.py: fastapi ok", flush=True)
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+print("[STARTUP] main.py: fastapi extras ok", flush=True)
 
+print("[STARTUP] main.py: importing db...", flush=True)
 from db import init_db
+print("[STARTUP] main.py: db ok", flush=True)
+
+print("[STARTUP] main.py: importing report_generator...", flush=True)
 from report_generator import generate_report
+print("[STARTUP] main.py: report_generator ok", flush=True)
+
+print("[STARTUP] main.py: importing routes...", flush=True)
 from routes.attempts import router as attempts_router
 from routes.auth import router as auth_router
 from routes.exams import router as exams_router
+print("[STARTUP] main.py: routes ok", flush=True)
+
+print("[STARTUP] main.py: importing websocket_handler...", flush=True)
 from websocket_handler import WebSocketHandler
+print("[STARTUP] main.py: websocket_handler ok", flush=True)
 
 # Store session summaries for report generation. Held in-process for
 # fast access during a session; the canonical record is also persisted
