@@ -27,10 +27,11 @@ COPY backend/ ./backend/
 # so we fetch them at build time instead).
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
     && mkdir -p backend/models \
-    && curl -sL -o backend/models/face_landmarker.task \
+    && curl -fsSL -o backend/models/face_landmarker.task \
        https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task \
-    && curl -sL -o backend/yolov8n.pt \
-       https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt
+    && curl -fsSL -o backend/yolov8n.pt \
+       https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt \
+    && ls -lh backend/models/face_landmarker.task backend/yolov8n.pt
 
 # Environment
 ENV PYTHONUNBUFFERED=1
