@@ -117,17 +117,4 @@ The agent's loop, conceptually:
 4. **Phase 4** — Voice channel and live transcript for the human
    proctor.
 
----
 
-## (template — add new ideas below)
-
-## N. Title
-
-### Problem it solves
-…
-
-### The idea
-…
-
-### Trade-offs / risks
-…
