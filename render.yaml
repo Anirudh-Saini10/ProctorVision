@@ -1,17 +1,8 @@
-# Render.com blueprint for the ProctorVision backend (FREE TIER).
+# Render.com blueprint for the ProctorVision backend.
 #
 # Usage:
 #   1. Push this repo to GitHub.
 #   2. In Render: New → Blueprint → connect your GitHub repo.
-#   3. Render reads this file and provisions everything below.
-#
-# What this creates:
-#   - One web service (FastAPI + uvicorn + ML stack)
-#
-# FREE TIER NOTE:
-#   Persistent disks are not available on free plans, so the SQLite
-#   database lives in /tmp. Data will reset when the service sleeps.
-#   Upgrade to a paid plan and add a disk to make data persistent.
 #
 # Both frontend and backend are served from this single service:
 # FastAPI handles API routes + WebSockets, and falls back to the
@@ -24,8 +15,6 @@ services:
     plan: free
     region: oregon
     rootDir: .
-    # Build frontend first (Render has Node available), then backend.
-    # The resulting frontend/dist is served by FastAPI as static files.
     buildCommand: cd frontend && npm install && npm run build && cd ../backend && pip install --no-cache-dir -r requirements.txt
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
@@ -34,7 +23,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
-        value: sqlite:///tmp/proctorvision.db
+        value: postgresql://proctorvision_user:C31YjAJOJr1v0uKqAhMRTaUvJMMk9Ehe@dpg-d82u1p0js32c7384rl80-a/proctorvision
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "3"
       - key: PYTHONUNBUFFERED

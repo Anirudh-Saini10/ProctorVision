@@ -27,7 +27,6 @@ import json
 import time
 import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
-from cv_pipeline import CVPipeline
 
 # DB writeback is best-effort: if anything goes wrong (DB locked, schema
 # drift, etc.) we log and continue rather than letting the proctoring
@@ -117,6 +116,12 @@ class WebSocketHandler:
         Args:
             websocket: FastAPI WebSocket connection
         """
+        # Lazy-import: heavy ML libraries (mediapipe, torch, ultralytics)
+        # only load when someone actually opens a proctoring session,
+        # not at app startup. This keeps the free-tier container under
+        # 512MB RAM during boot.
+        from cv_pipeline import CVPipeline
+
         await websocket.accept()
         ws_id = id(websocket)
         pipeline = CVPipeline()
