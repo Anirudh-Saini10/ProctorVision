@@ -17,9 +17,12 @@ Run with:
     uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from db import init_db
 from report_generator import generate_report
@@ -106,6 +109,14 @@ async def proctor_websocket(websocket: WebSocket):
 async def list_sessions():
     """List currently live + recently ended proctoring sessions."""
     return JSONResponse({"sessions": ws_handler.list_active_sessions()})
+
+
+# --- Static frontend (single-origin deploy) ---
+# When the frontend is built into ../frontend/dist, FastAPI serves it
+# as a fallback for any unmatched route (SPA behaviour via html=True).
+_static_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _static_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
 
 
 # --- Startup event ---

@@ -4,10 +4,11 @@
  */
 
 const HTTP =
-  import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? 'http://localhost:8000'
+  import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
 
-// Derive WS URL from HTTP URL (http -> ws, https -> wss)
-const WS = HTTP.replace(/^http/, 'ws')
+// Derive WS URL from HTTP URL (http -> ws, https -> wss).
+// When HTTP is empty (same-origin deploy) just use relative /ws.
+const WS = HTTP ? HTTP.replace(/^http/, 'ws') : ''
 
 export const API_URL = HTTP
 export const WS_URL = `${WS}/ws`
