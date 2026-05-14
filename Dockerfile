@@ -1,20 +1,11 @@
-FROM python:3.11-slim
+FROM python:3.11
 
 WORKDIR /app
 
-# Install Node.js + ALL system libs OpenCV / ML stack needs
+# Install Node.js only — python:3.11 base already has all system libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     npm \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    libxcb1 \
-    libgomp1 \
-    libfontconfig1 \
-    libice6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (heavy layer — cache first)
