@@ -43,26 +43,12 @@ app = FastAPI(
 )
 
 # --- CORS configuration ---
-# Dev defaults + any extra origins from FRONTEND_ORIGINS env var
-# (comma-separated). On Render, set FRONTEND_ORIGINS to your static
-# site URL so the browser can call the API.
-DEFAULT_ORIGINS = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3000",
-]
-_extra = [o.strip() for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o.strip()]
-# Allow all origins when deployed — auth is JWT header-based, not cookies,
-# so wildcard CORS is safe and removes env-var configuration friction.
-ALLOWED_ORIGINS = DEFAULT_ORIGINS + _extra
-if not _extra:
-    ALLOWED_ORIGINS.append("*")
-
+# Allow all origins — auth is JWT header-based (not cookies), so wildcard
+# CORS is safe and removes deployment configuration friction.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -138,9 +124,7 @@ async def startup_event():
     print("  Health check:       http://localhost:8000/api/health")
     print("  API docs:           http://localhost:8000/docs")
     print()
-    print("  CORS allowed origins:")
-    for origin in ALLOWED_ORIGINS:
-        print(f"    - {origin}")
+    print("  CORS: allow all origins (JWT header auth)")
     print()
     print("  Ready for connections.")
     print()
