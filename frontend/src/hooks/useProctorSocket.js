@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { API_URL } from '../lib/config.js'
+import { WS_BASE } from '../lib/config.js'
 
 /**
  * Connects to /ws/proctor and exposes:
@@ -30,7 +30,7 @@ export default function useProctorSocket() {
   }, [])
 
   useEffect(() => {
-    const wsUrl = API_URL.replace(/^http/, 'ws') + '/ws/proctor'
+    const wsUrl = WS_BASE() + '/ws/proctor'
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     setStatus('connecting')
