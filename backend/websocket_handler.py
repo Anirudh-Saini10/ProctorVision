@@ -368,6 +368,13 @@ class WebSocketHandler:
             None, pipeline.process_frame, frame_data, timestamp_ms
         )
 
+        # Log every 30th frame receipt so we can confirm frames are flowing
+        fn = result.get("frame_number", 0)
+        if fn % 30 == 0:
+            print(f"  [WS frame #{fn}] face={result.get('face_detected')} "
+                  f"cal={result.get('calibration', {}).get('state', '?')} "
+                  f"violations={len(result.get('violations', []))} risk={result.get('risk_score')}")
+
         if "error" in result:
             await self._send(websocket, {
                 "type": "error",
@@ -464,12 +471,15 @@ class WebSocketHandler:
             "frame_number": result["frame_number"],
             "face_detected": result["face_detected"],
             "face_count": result["face_count"],
+            "diag": result.get("diag"),
         })
 
     async def _handle_tab_switch(self, websocket, pipeline, message):
         """Handle a tab switch / focus loss event from the browser."""
         direction = message.get("direction", "blur")
         timestamp = message.get("timestamp", int(time.time() * 1000))
+
+        print(f"  [WS] tab_switch received: direction={direction}")
 
         # Log as violation
         v = pipeline.violation_logger.log_violation(

@@ -113,10 +113,14 @@ export function WebSocketProvider({ children }) {
           break
         case 'frame_processed':
           setLastFrameInfo({
-            frame_number: msg.frame_number,
-            face_detected: msg.face_detected,
-            face_count: msg.face_count,
+            frameNumber: msg.frame_number,
+            faceDetected: msg.face_detected,
+            faceCount: msg.face_count,
           })
+          if (msg.diag && msg.frame_number % 30 === 0) {
+            // eslint-disable-next-line no-console
+            console.log('[WS diag]', JSON.stringify(msg.diag))
+          }
           break
         case 'session_ended':
           setSummary(msg.summary)

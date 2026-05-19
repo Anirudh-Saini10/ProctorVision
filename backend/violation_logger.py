@@ -150,12 +150,14 @@ class ViolationLogger:
 
         # Check confidence threshold
         if confidence < MIN_CONFIDENCE:
+            print(f"  [VL] {violation_type} dropped: confidence {confidence:.2f} < {MIN_CONFIDENCE}")
             return None
 
         # Check cooldown
         if violation_type in self.last_violation_time:
             elapsed = current_time - self.last_violation_time[violation_type]
             if elapsed < VIOLATION_COOLDOWN:
+                print(f"  [VL] {violation_type} dropped: cooldown {elapsed:.1f}s < {VIOLATION_COOLDOWN}s")
                 return None
 
         # Get weight for this violation type
@@ -187,6 +189,8 @@ class ViolationLogger:
 
         # Recalculate risk score
         self._update_risk_score()
+
+        print(f"  [VL] {violation_type} LOGGED (conf={confidence:.2f}, risk={self.risk_score})")
 
         return violation
 

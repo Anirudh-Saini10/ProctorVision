@@ -434,6 +434,31 @@ class CVPipeline:
         if self.calibration.is_complete and not calibration_info.get("baselines_sent"):
             calibration_info["baselines_sent"] = True
 
+        # Diagnostic snapshot every 30 frames (~6 seconds at 5fps)
+        if self._frame_count % 30 == 0:
+            cal_state = calibration_info["state"]
+            yolo_ran = (self._frame_count % YOLO_FRAME_INTERVAL == 0)
+            hp_dev = (head_pose_result.get("deviation").tolist()
+                      if head_pose_result and head_pose_result.get("deviation") is not None
+                      else None)
+            print(f"  [CV diag #{self._frame_count}] cal={cal_state} "
+                  f"face={face_detected}({face_count}) iris={has_iris if face_detected else 'N/A'} "
+                  f"hp_dev={hp_dev} hp_viol={head_pose_result.get('is_violation') if head_pose_result else 'N/A'} "
+                  f"yolo_ran={yolo_ran} yolo_dets={len(self._last_yolo_results.get('detections', []))} "
+                  f"violations_this_frame={len(new_violations)} risk={self.violation_logger.get_risk_score()}")
+
+        diag = {
+            "cal_state": calibration_info["state"],
+            "face_detected": face_detected,
+            "face_count": face_count,
+            "hp_deviation": (head_pose_result.get("deviation").tolist()
+                             if head_pose_result and head_pose_result.get("deviation") is not None
+                             else None),
+            "hp_is_violation": head_pose_result.get("is_violation") if head_pose_result else False,
+            "yolo_detections": len(self._last_yolo_results.get("detections", [])),
+            "violations_this_frame": len(new_violations),
+        }
+
         return {
             "violations": new_violations,
             "risk_score": self.violation_logger.get_risk_score(),
@@ -446,6 +471,7 @@ class CVPipeline:
             "face_count": face_count,
             "frame_number": self._frame_count,
             "degraded": degraded,
+            "diag": diag,
         }
 
     def _decode_frame(self, frame_data):
