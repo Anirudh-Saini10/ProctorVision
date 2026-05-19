@@ -22,7 +22,6 @@ import time
 import base64
 import numpy as np
 import cv2
-import mediapipe as mp
 import os
 
 from gaze_estimator import GazeEstimator
@@ -32,17 +31,36 @@ from object_detector import ObjectDetector
 from calibration import CalibrationManager
 from violation_logger import ViolationLogger
 
-# --- MediaPipe Tasks API setup ---
-BaseOptions = mp.tasks.BaseOptions
-FaceLandmarker = mp.tasks.vision.FaceLandmarker
-FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
-FaceDetector = mp.tasks.vision.FaceDetector
-FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
-RunningMode = mp.tasks.vision.RunningMode
-
 # Model paths
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 FACE_LANDMARKER_MODEL = os.path.join(MODEL_DIR, "face_landmarker.task")
+YOLO_MODEL_PATH = os.path.join(os.path.dirname(__file__), "yolov8n.pt")
+
+
+def _import_mediapipe():
+    """Lazy-import mediapipe so a failed import doesn't block the whole module."""
+    import mediapipe as mp
+    return (
+        mp.tasks.BaseOptions,
+        mp.tasks.vision.FaceLandmarker,
+        mp.tasks.vision.FaceLandmarkerOptions,
+        mp.tasks.vision.RunningMode,
+    )
+
+
+def _check_model_files():
+    """Verify ML model files exist on disk before attempting to load them."""
+    missing = []
+    if not os.path.isfile(FACE_LANDMARKER_MODEL):
+        missing.append(FACE_LANDMARKER_MODEL)
+    if not os.path.isfile(YOLO_MODEL_PATH):
+        missing.append(YOLO_MODEL_PATH)
+    if missing:
+        raise FileNotFoundError(
+            f"Missing model file(s): {missing}. "
+            f"Expected face_landmarker.task at {FACE_LANDMARKER_MODEL} "
+            f"and yolov8n.pt at {YOLO_MODEL_PATH}."
+        )
 
 # Processing frequency for YOLO (run every N frames). At 5fps frame
 # streaming, 3 frames ≈ 600ms — a brief phone-flash gets ~2 chances to
@@ -73,9 +91,7 @@ class CVPipeline:
         self.gaze = GazeEstimator()
         self.head_pose = HeadPoseEstimator()
         self.lip_detector = LipMovementDetector()
-        self.object_detector = ObjectDetector(
-            model_path=os.path.join(os.path.dirname(__file__), "yolov8n.pt")
-        )
+        self.object_detector = ObjectDetector(model_path=YOLO_MODEL_PATH)
         self.calibration = CalibrationManager()
         self.violation_logger = ViolationLogger()
 
@@ -121,6 +137,13 @@ class CVPipeline:
         Returns:
             str: Session ID
         """
+        # Validate model files are on disk before attempting to load them
+        _check_model_files()
+
+        # Lazy-import mediapipe so a container without libgomp1 / protobuf
+        # issues can still import cv_pipeline for health checks.
+        BaseOptions, FaceLandmarker, FaceLandmarkerOptions, RunningMode = _import_mediapipe()
+
         # Create FaceLandmarker
         # Close any existing landmarker before re-creating (important for
         # recalibration — a second start_session() on the same pipeline must
@@ -132,20 +155,26 @@ class CVPipeline:
                 pass
             self._landmarker = None
 
-        options = FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=FACE_LANDMARKER_MODEL),
-            running_mode=RunningMode.VIDEO,
-            num_faces=2,  # Detect up to 2 faces for multi-face violation
-            # Raised from 0.5 → 0.7 to stop hallucinating "second faces" on
-            # wall posters, shadows and background textures. 0.7 still
-            # reliably picks up an actual human face in frame.
-            min_face_detection_confidence=0.7,
-            min_face_presence_confidence=0.7,
-            min_tracking_confidence=0.5,
-            output_face_blendshapes=False,
-            output_facial_transformation_matrixes=False,
-        )
-        self._landmarker = FaceLandmarker.create_from_options(options)
+        try:
+            options = FaceLandmarkerOptions(
+                base_options=BaseOptions(model_asset_path=FACE_LANDMARKER_MODEL),
+                running_mode=RunningMode.VIDEO,
+                num_faces=2,  # Detect up to 2 faces for multi-face violation
+                # Raised from 0.5 → 0.7 to stop hallucinating "second faces" on
+                # wall posters, shadows and background textures. 0.7 still
+                # reliably picks up an actual human face in frame.
+                min_face_detection_confidence=0.7,
+                min_face_presence_confidence=0.7,
+                min_tracking_confidence=0.5,
+                output_face_blendshapes=False,
+                output_facial_transformation_matrixes=False,
+            )
+            self._landmarker = FaceLandmarker.create_from_options(options)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to create MediaPipe FaceLandmarker from {FACE_LANDMARKER_MODEL}. "
+                f"Original error: {type(exc).__name__}: {exc}"
+            ) from exc
 
         # Start session tracking
         session_id = self.violation_logger.start_session()
@@ -208,8 +237,9 @@ class CVPipeline:
         h, w = frame.shape[:2]
 
         # --- MediaPipe FaceLandmarker ---
+        import mediapipe as _mp
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        mp_image = _mp.Image(image_format=_mp.ImageFormat.SRGB, data=rgb_frame)
 
         face_result = self._landmarker.detect_for_video(mp_image, timestamp_ms)
 

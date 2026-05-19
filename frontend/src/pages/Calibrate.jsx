@@ -137,7 +137,12 @@ export default function Calibrate() {
         </p>
         {errorMessage && (
           <div className="mt-2 rounded border border-risk-high bg-risk-high/10 px-4 py-2 text-[13px] text-risk-high">
-            {errorMessage}
+            <p className="font-medium">{errorMessage}</p>
+            {errorMessage?.toLowerCase().includes('unavailable') && (
+              <p className="mt-1 text-[11px] opacity-80">
+                Engine detail: check browser DevTools console or server logs.
+              </p>
+            )}
           </div>
         )}
         <h1 className="mt-2 text-2xl font-medium tracking-tightest text-text-primary">
@@ -218,9 +223,11 @@ export default function Calibrate() {
                     <button
                       type="button"
                       onClick={handleContinue}
-                      className="rounded border border-accent bg-accent px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover"
+                      disabled={!!errorMessage}
+                      title={errorMessage ? "Cannot start: proctoring engine is unavailable" : undefined}
+                      className="rounded border border-accent bg-accent px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent"
                     >
-                      Continue to exam
+                      {errorMessage ? 'Engine unavailable' : 'Continue to exam'}
                     </button>
                   </div>
                 </div>

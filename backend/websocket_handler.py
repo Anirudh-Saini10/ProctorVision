@@ -26,6 +26,7 @@ Message Schema:
 import json
 import time
 import asyncio
+import traceback
 from fastapi import WebSocket, WebSocketDisconnect
 
 # DB writeback is best-effort: if anything goes wrong (DB locked, schema
@@ -122,12 +123,15 @@ class WebSocketHandler:
         # 512MB RAM during boot.
         pipeline = None
         cv_error = None
+        cv_error_detail = None
         try:
             from cv_pipeline import CVPipeline
             pipeline = CVPipeline()
         except Exception as exc:
             cv_error = str(exc)
+            cv_error_detail = traceback.format_exc()
             print(f"  [WS] CVPipeline import/init failed: {cv_error}")
+            print(cv_error_detail)
 
         await websocket.accept()
         ws_id = id(websocket)
@@ -137,9 +141,13 @@ class WebSocketHandler:
         print(f"  [WS] Client connected: {ws_id}")
 
         if cv_error:
+            # Send a short user-facing message + a detail field for
+            # diagnostics (visible in browser dev-tools without needing
+            # server log access).
             await self._send(websocket, {
                 "type": "error",
-                "message": f"Proctoring engine unavailable: {cv_error}",
+                "message": "Proctoring engine unavailable — exam can continue without AI monitoring.",
+                "detail": cv_error,
             })
             # Keep connection open so client can handle gracefully.
             # We'll still process session_start / session_end for bookkeeping,
@@ -163,10 +171,15 @@ class WebSocketHandler:
 
                 if msg_type == "session_start":
                     if pipeline is None:
-                        await self._send(websocket, {
+                        # Only send error if we didn't already broadcast it
+                        # on connection accept (avoids duplicate banners).
+                        payload = {
                             "type": "error",
                             "message": "Proctoring engine unavailable — exam can continue without AI monitoring.",
-                        })
+                        }
+                        if cv_error:
+                            payload["detail"] = cv_error
+                        await self._send(websocket, payload)
                     else:
                         await self._handle_session_start(websocket, pipeline, message)
 

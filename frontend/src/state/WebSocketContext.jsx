@@ -138,6 +138,10 @@ export function WebSocketProvider({ children }) {
           break
         case 'error':
           setErrorMessage(msg.message || 'Unknown server error')
+          if (msg.detail) {
+            // eslint-disable-next-line no-console
+            console.warn('[WS] Server error detail:', msg.detail)
+          }
           break
         default:
           break

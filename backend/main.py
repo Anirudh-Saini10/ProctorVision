@@ -92,6 +92,48 @@ async def health_check():
     })
 
 
+@app.get("/api/health/engine")
+async def engine_health_check():
+    """
+    Deep health check for the CV / proctoring engine.
+
+    Returns:
+        - ready: bool — whether CVPipeline can be instantiated
+        - models_found: dict — existence of each required model file
+        - import_error: str|null — the exact error if import failed
+    """
+    import os
+    import traceback
+
+    model_dir = os.path.join(os.path.dirname(__file__), "models")
+    face_landmarker = os.path.join(model_dir, "face_landmarker.task")
+    yolo = os.path.join(os.path.dirname(__file__), "yolov8n.pt")
+
+    models_found = {
+        "face_landmarker.task": os.path.isfile(face_landmarker),
+        "yolov8n.pt": os.path.isfile(yolo),
+    }
+
+    import_error = None
+    try:
+        from cv_pipeline import CVPipeline
+        # Light-weight instantiation (no heavy models loaded yet)
+        _ = CVPipeline()
+        ready = True
+    except Exception as exc:
+        ready = False
+        import_error = f"{type(exc).__name__}: {exc}"
+        # Also log to container stdout so deploy logs capture it
+        print("[ENGINE HEALTH] CVPipeline failed:")
+        traceback.print_exc()
+
+    return JSONResponse({
+        "ready": ready,
+        "models_found": models_found,
+        "import_error": import_error,
+    })
+
+
 @app.get("/api/report/{session_id}")
 async def download_report(session_id: str):
     """Download a PDF integrity report for a completed session."""
