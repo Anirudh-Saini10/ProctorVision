@@ -1,0 +1,39 @@
+name: Keep HF Space Awake
+
+# Pings the public ProctorVision Space every 5 minutes so HF Spaces'
+# free-tier auto-sleep never kicks in. The whole job is a single curl
+# against /api/health (an endpoint that already exists). It does not
+# touch any app code, Dockerfile, or deployment — if this workflow is
+# disabled or fails, the app keeps running exactly as before; the only
+# consequence is that the Space goes back to its default sleep
+# behaviour after ~10 min of no real traffic.
+#
+# Cost: ~9000 GitHub Actions minutes/year, well under the free tier
+# limit of 2000/month for public repos (public repos = unlimited).
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub may delay cron runs by a few minutes
+    # under load — that's fine, HF Spaces' sleep timer is generous.
+    - cron: '*/5 * * * *'
+  # Allow manual trigger from the Actions tab too
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping /api/health
+        run: |
+          set -e
+          URL="https://anirudhsaini-proctorvision.hf.space/api/health"
+          # -f: fail on HTTP errors. -sS: silent except on error.
+          # --max-time 90: allow up to 90s for cold-start wakeups —
+          # the very first ping after a long idle may need to spin
+          # the container back up.
+          curl -fsS --max-time 90 "$URL" || {
+            echo "::warning::Keep-alive ping failed (Space may be cold-starting). Will retry on next cron tick."
+            exit 0
+          }
+          echo "Keep-alive ping OK."
