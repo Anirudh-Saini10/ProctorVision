@@ -367,11 +367,37 @@ class WebSocketHandler:
         if not frame_data:
             return
 
-        # Process frame through CV pipeline (CPU-bound, run in thread pool)
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, pipeline.process_frame, frame_data, timestamp_ms
-        )
+        # ── Frame coalescing ─────────────────────────────────────────
+        # On HF Spaces' free CPU, processing a frame (MediaPipe + YOLO)
+        # can take 500-1500ms. The browser streams at 5fps, so frames
+        # arrive faster than we can process. Without coalescing, the
+        # asyncio queue backlogs and detections lag the live view by
+        # 30+ seconds — the proctor sees "phone_detected" violations
+        # for events that happened long ago, even after the candidate
+        # has ended their exam.
+        #
+        # Solution: only ONE frame is in flight per pipeline. While a
+        # frame is being processed, newer frames are dropped (we still
+        # update the proctor's last_frame snapshot so the live tile
+        # stays visually fresh, just at a lower effective fps). This
+        # keeps detection latency bounded by single-frame processing
+        # time instead of growing without limit.
+        if getattr(pipeline, "_inflight", False):
+            sid = getattr(pipeline, "_session_id", None)
+            if sid and sid in self.live_sessions:
+                self.live_sessions[sid]["last_frame"] = frame_data
+                self.live_sessions[sid]["last_frame_at"] = time.time()
+            return
+
+        pipeline._inflight = True
+        try:
+            # Process frame through CV pipeline (CPU-bound, run in thread pool)
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, pipeline.process_frame, frame_data, timestamp_ms
+            )
+        finally:
+            pipeline._inflight = False
 
         # Log every 30th frame receipt so we can confirm frames are flowing
         fn = result.get("frame_number", 0)

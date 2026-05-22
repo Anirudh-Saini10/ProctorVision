@@ -98,11 +98,15 @@ export default function Exam() {
     return () => clearInterval(id)
   }, [])
 
-  // stream frames at 5 FPS
+  // Stream frames at 3 FPS. The backend coalesces (drops) frames
+  // when one is still being processed, so streaming faster than the
+  // backend can handle just wastes bandwidth. 3fps gives detection
+  // ~333ms cadence, still well under the 1.5s sustained-deviation
+  // thresholds, and survives HF Spaces' CPU budget without queueing.
   useFrameStreamer({
     getVideo: () => camRef.current?.video ?? null,
     active: !!sessionId,
-    fps: 5,
+    fps: 3,
     onFrame: sendFrame,
   })
 
