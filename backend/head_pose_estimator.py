@@ -62,7 +62,7 @@ PITCH_THRESHOLD = 30.0     # Up/down nod — generous to allow natural head move
 ROLL_THRESHOLD = 45.0      # Head tilt — very generous, tilting alone is NOT a violation
 
 # Minimum sustained deviation duration before logging a violation (seconds)
-SUSTAINED_DURATION = 2.5
+SUSTAINED_DURATION = 1.5
 
 # Exponential moving average factor for temporal smoothing (0-1, higher = less smoothing)
 EMA_ALPHA = 0.3

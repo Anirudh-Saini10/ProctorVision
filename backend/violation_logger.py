@@ -66,8 +66,11 @@ VIOLATION_WEIGHTS = {
 # over ~24 seconds if no further violations occur.
 LIVE_RISK_HALF_LIFE = 12.0
 
-# Minimum confidence to log a violation
-MIN_CONFIDENCE = 0.65
+# Minimum confidence to log a violation.
+# Lowered to 0.30 to match the object detector's phone threshold (0.32).
+# Without this, phone detections in the 0.32-0.64 range are flagged by
+# the detector but then silently discarded here.
+MIN_CONFIDENCE = 0.30
 
 # Cooldown period — same violation type cannot re-fire within this many seconds
 VIOLATION_COOLDOWN = 3.0
@@ -194,7 +197,7 @@ class ViolationLogger:
 
         return violation
 
-    def check_face_absence(self, face_detected, threshold=3.0):
+    def check_face_absence(self, face_detected, threshold=2.0):
         """
         Track face absence and log a violation if face is missing too long.
 

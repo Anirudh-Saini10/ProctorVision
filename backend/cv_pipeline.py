@@ -355,13 +355,13 @@ class CVPipeline:
                 # consecutive frames before flagging. MediaPipe can
                 # briefly hallucinate a second face on wall art, posters,
                 # patterned fabric or shadows; a real second person in
-                # frame will persist. At ~5 fps, 8 frames ≈ 1.6 seconds.
+                # frame will persist. At ~5 fps, 4 frames ≈ 0.8 seconds.
                 if face_count > 1:
                     self._multi_face_streak += 1
                 else:
                     self._multi_face_streak = 0
 
-                if self._multi_face_streak >= 8:
+                if self._multi_face_streak >= 4:
                     v = self.violation_logger.log_violation(
                         "multiple_faces",
                         confidence=1.0,
@@ -407,7 +407,7 @@ class CVPipeline:
             if (
                 yolo_results["person_count"] > 1
                 and face_count <= 1
-                and self._multi_face_streak >= 4
+                and self._multi_face_streak >= 2
             ):
                 v = self.violation_logger.log_violation(
                     "multiple_faces",
