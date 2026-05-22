@@ -176,6 +176,18 @@ class CVPipeline:
                 f"Original error: {type(exc).__name__}: {exc}"
             ) from exc
 
+        # Pre-load the YOLO model NOW (synchronously) so the first
+        # frame's detection doesn't trigger a 5-10s model download/load
+        # mid-stream. On HF Spaces, a long synchronous load inside the
+        # frame handler blocks the asyncio event loop and the WebSocket
+        # proxy drops the connection — causing detection to "work once
+        # then stop" because the WS dies after the first heavy YOLO call.
+        try:
+            self.object_detector._get_model()
+            print("  [CV] YOLO model pre-loaded for session")
+        except Exception as exc:
+            print(f"  [CV] YOLO pre-load failed (non-fatal): {exc}")
+
         # Start session tracking
         session_id = self.violation_logger.start_session()
         self._frame_count = 0

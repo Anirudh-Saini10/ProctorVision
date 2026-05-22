@@ -280,7 +280,12 @@ class WebSocketHandler:
                 reason="superseded",
             )
 
-        session_id = pipeline.start_session()
+        # start_session() pre-loads heavy ML models (YOLO + MediaPipe
+        # FaceLandmarker). Run it in a thread executor so the asyncio
+        # event loop stays responsive — otherwise the WebSocket proxy
+        # on HF Spaces times out the candidate connection mid-load.
+        loop = asyncio.get_event_loop()
+        session_id = await loop.run_in_executor(None, pipeline.start_session)
         meta = message or {}
         candidate = meta.get("candidate_name") or "Anonymous"
         code = meta.get("code") or ""
