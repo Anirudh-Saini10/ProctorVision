@@ -112,10 +112,14 @@ export function WebSocketProvider({ children }) {
           setRiskScore(msg.score)
           break
         case 'frame_processed':
+          // Keep snake_case keys — Exam.jsx and other consumers read
+          // `face_detected` directly off this object. Renaming to
+          // camelCase here broke the "no face" banner detection and
+          // made the recording header permanently show "NO FACE".
           setLastFrameInfo({
-            frameNumber: msg.frame_number,
-            faceDetected: msg.face_detected,
-            faceCount: msg.face_count,
+            frame_number: msg.frame_number,
+            face_detected: msg.face_detected,
+            face_count: msg.face_count,
           })
           if (msg.diag && msg.frame_number % 30 === 0) {
             // eslint-disable-next-line no-console

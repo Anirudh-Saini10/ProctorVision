@@ -13,6 +13,7 @@ import useFrameStreamer from '../hooks/useFrameStreamer.js'
 import useTabMonitor from '../hooks/useTabMonitor.js'
 import useAudioActivity from '../hooks/useAudioActivity.js'
 import { attemptsApi } from '../lib/api.js'
+import { STREAM_FPS } from '../lib/config.js'
 
 /**
  * Maps backend violation types to display strings + severity tier for AlertStack.
@@ -98,15 +99,12 @@ export default function Exam() {
     return () => clearInterval(id)
   }, [])
 
-  // Stream frames at 3 FPS. The backend coalesces (drops) frames
-  // when one is still being processed, so streaming faster than the
-  // backend can handle just wastes bandwidth. 3fps gives detection
-  // ~333ms cadence, still well under the 1.5s sustained-deviation
-  // thresholds, and survives HF Spaces' CPU budget without queueing.
+  // Stream frames at STREAM_FPS (default 5, set to 3 on HF Spaces).
+  // The backend coalesces dropped frames on slow hardware either way.
   useFrameStreamer({
     getVideo: () => camRef.current?.video ?? null,
     active: !!sessionId,
-    fps: 3,
+    fps: STREAM_FPS,
     onFrame: sendFrame,
   })
 

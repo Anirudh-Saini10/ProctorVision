@@ -6,6 +6,7 @@ import WebcamFeed from '../components/WebcamFeed.jsx'
 import { useSession } from '../state/SessionContext.jsx'
 import { useWS } from '../state/WebSocketContext.jsx'
 import useFrameStreamer from '../hooks/useFrameStreamer.js'
+import { STREAM_FPS } from '../lib/config.js'
 
 /**
  * Real-backend calibration:
@@ -85,7 +86,7 @@ export default function Calibrate() {
   useFrameStreamer({
     getVideo: () => camRef.current?.video ?? null,
     active: streamActive && !calibrationComplete,
-    fps: 5,
+    fps: STREAM_FPS,
     onFrame: sendFrame,
   })
 

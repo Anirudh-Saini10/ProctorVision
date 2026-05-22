@@ -357,9 +357,18 @@ class WebSocketHandler:
 
     async def _handle_frame(self, websocket, pipeline, message):
         """
-        Process a frame from the client.
+        Receive a frame from the client.
 
-        Runs the CV pipeline and sends back any violations and updates.
+        Producer side of a producer/consumer pair. Frames are received
+        much faster than we can process them on HF Spaces' free CPU
+        (5fps in, ~1fps out). Instead of queueing them all (which causes
+        30+ second detection latency and posthumous violation flags
+        after session_end), we stash only the LATEST frame in a single
+        slot. A background consumer task (`_process_pending_frames`)
+        picks up the slot, processes that frame, and when it finishes
+        looks at the slot again — anything that arrived in the
+        meantime overwrote older frames, so we always process the
+        newest. Older frames are silently dropped.
         """
         frame_data = message.get("data")
         timestamp_ms = message.get("timestamp")
@@ -367,37 +376,52 @@ class WebSocketHandler:
         if not frame_data:
             return
 
-        # ── Frame coalescing ─────────────────────────────────────────
-        # On HF Spaces' free CPU, processing a frame (MediaPipe + YOLO)
-        # can take 500-1500ms. The browser streams at 5fps, so frames
-        # arrive faster than we can process. Without coalescing, the
-        # asyncio queue backlogs and detections lag the live view by
-        # 30+ seconds — the proctor sees "phone_detected" violations
-        # for events that happened long ago, even after the candidate
-        # has ended their exam.
-        #
-        # Solution: only ONE frame is in flight per pipeline. While a
-        # frame is being processed, newer frames are dropped (we still
-        # update the proctor's last_frame snapshot so the live tile
-        # stays visually fresh, just at a lower effective fps). This
-        # keeps detection latency bounded by single-frame processing
-        # time instead of growing without limit.
-        if getattr(pipeline, "_inflight", False):
-            sid = getattr(pipeline, "_session_id", None)
-            if sid and sid in self.live_sessions:
-                self.live_sessions[sid]["last_frame"] = frame_data
-                self.live_sessions[sid]["last_frame_at"] = time.time()
-            return
+        # Stash latest frame, overwriting any prior unprocessed frame.
+        pipeline._pending_frame = (frame_data, timestamp_ms, websocket)
 
-        pipeline._inflight = True
-        try:
-            # Process frame through CV pipeline (CPU-bound, run in thread pool)
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None, pipeline.process_frame, frame_data, timestamp_ms
+        # Update the proctor's live tile immediately so it stays visually
+        # fresh even when most frames are dropped by the consumer.
+        sid = getattr(pipeline, "_session_id", None)
+        if sid and sid in self.live_sessions:
+            self.live_sessions[sid]["last_frame"] = frame_data
+            self.live_sessions[sid]["last_frame_at"] = time.time()
+
+        # Spin up the consumer task if not already running.
+        task = getattr(pipeline, "_processor_task", None)
+        if task is None or task.done():
+            pipeline._processor_task = asyncio.create_task(
+                self._process_pending_frames(pipeline)
             )
-        finally:
-            pipeline._inflight = False
+
+    async def _process_pending_frames(self, pipeline):
+        """Consumer loop: process whichever frame is currently in the
+        pipeline's `_pending_frame` slot, then check again. Exits when
+        the slot is empty (next incoming frame will respawn the task).
+        """
+        while True:
+            pending = getattr(pipeline, "_pending_frame", None)
+            if pending is None:
+                return
+            pipeline._pending_frame = None
+            frame_data, timestamp_ms, websocket = pending
+            try:
+                await self._process_frame_inner(
+                    websocket, pipeline, frame_data, timestamp_ms,
+                )
+            except Exception as exc:
+                print(f"  [WS] frame processing error: {exc}")
+                traceback.print_exc()
+
+    async def _process_frame_inner(self, websocket, pipeline, frame_data, timestamp_ms):
+        """Run the CV pipeline on a single frame and emit all the
+        downstream messages (violations, snapshots, risk, calibration,
+        frame_processed ack). Called only by `_process_pending_frames`.
+        """
+        # Process frame through CV pipeline (CPU-bound, run in thread pool)
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, pipeline.process_frame, frame_data, timestamp_ms
+        )
 
         # Log every 30th frame receipt so we can confirm frames are flowing
         fn = result.get("frame_number", 0)
