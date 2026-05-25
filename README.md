@@ -208,7 +208,8 @@ SOME DEMO PICTURES!
 <img width="1356" height="615" alt="Screenshot 2026-05-25 134016" src="https://github.com/user-attachments/assets/f25af0ac-b271-4766-a325-b965b75f5583" />
 <img width="1354" height="631" alt="Screenshot 2026-05-25 134100" src="https://github.com/user-attachments/assets/dbea3a01-951f-40e0-bf2d-a6f167ff1db8" />
 <img width="1313" height="636" alt="Screenshot 2026-05-25 134133" src="https://github.com/user-attachments/assets/ddaa5324-f6e3-44d4-b78c-715c1083985f" />
-![Uploading Screenshot 2026-05-25 134156.png…]()
+<img width="863" height="484" alt="Screenshot 2026-05-25 134156" src="https://github.com/user-attachments/assets/76f94b45-d51b-429b-a501-159c33dfc5cf" />
+
 
 
 
