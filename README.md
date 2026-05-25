@@ -197,3 +197,25 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 Built by [Anirudh Saini](https://github.com/Anirudh-Saini10)
+
+SOME DEMO PICTURES!
+<img width="758" height="471" alt="Screenshot 2026-05-25 120758" src="https://github.com/user-attachments/assets/0a49739f-9c16-4cd4-b8ba-d3a5e871b1ba" />
+<img width="843" height="472" alt="Screenshot 2026-05-25 122219" src="https://github.com/user-attachments/assets/a52b54b6-ea57-4bd8-a997-84c060e34fc0" />
+<img width="1345" height="613" alt="Screenshot 2026-05-25 131650" src="https://github.com/user-attachments/assets/69c8dd7b-d996-49ac-8322-7b3d6ee6921b" />
+<img width="1334" height="616" alt="Screenshot 2026-05-25 131734" src="https://github.com/user-attachments/assets/3f2ebb7b-150e-48e5-9bcf-75842d3f71da" />
+<img width="1346" height="621" alt="Screenshot 2026-05-25 132146" src="https://github.com/user-attachments/assets/b0e72bf3-0717-4502-aa22-3af30cfb9591" />
+<img width="1341" height="620" alt="Screenshot 2026-05-25 132452" src="https://github.com/user-attachments/assets/ecc02db3-d103-4a60-b2c6-36866a1e4ea1" />
+<img width="1335" height="612" alt="Screenshot 2026-05-25 133050" src="https://github.com/user-attachments/assets/db40cc05-87b7-4792-9dac-7429ed844eaf" />
+<img width="1349" height="618" alt="Screenshot 2026-05-25 133212" src="https://github.com/user-attachments/assets/f9697968-c50f-4322-9bdd-33d0edd1a519" />
+<img width="1356" height="615" alt="Screenshot 2026-05-25 134016" src="https://github.com/user-attachments/assets/f25af0ac-b271-4766-a325-b965b75f5583" />
+<img width="1354" height="631" alt="Screenshot 2026-05-25 134100" src="https://github.com/user-attachments/assets/dbea3a01-951f-40e0-bf2d-a6f167ff1db8" />
+
+
+
+
+
+
+
+
+
+
