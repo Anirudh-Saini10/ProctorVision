@@ -48,7 +48,7 @@ ProctorVision is a full-stack remote proctoring platform that lets educators cre
 | **Auth** | JWT (bcrypt + python-jose) |
 | **Database** | SQLModel + SQLite (zero-ops, file-based) |
 | **Reports** | ReportLab (PDF generation) |
-| **Deploy** | HuggingFace (single service, frontend + backend) |
+| **Deploy** | HuggingFace Spaces (single service, frontend + backend) |
 
 ---
 
@@ -58,7 +58,7 @@ ProctorVision is a full-stack remote proctoring platform that lets educators cre
 ┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
 │   Candidate     │      │   ProctorVision  │      │    Proctor      │
 │   Browser       │◄────►│   Backend        │◄────►│   Dashboard     │
-│                 │  WS  │   (Render)       │  WS  │                 │
+│                 │  WS  │   (HFSpaces)     │  WS  │                 │
 │  Webcam stream  │      │                  │      │  Live console   │
 │  Quiz UI        │      │  CV Pipeline     │      │  Risk meters    │
 └─────────────────┘      │  YOLOv8 + MP     │      │  Snapshots      │
@@ -119,7 +119,6 @@ Open [http://localhost:5173](http://localhost:5173)
 See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide.
 
 **Summary:**
-- Single service on [Render](https://render.com) (`render.yaml` blueprint)
 - Frontend built into backend, served by FastAPI
 - Same origin = no CORS, zero config
 - Cost at portfolio scale: **$0**
