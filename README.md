@@ -48,7 +48,7 @@ ProctorVision is a full-stack remote proctoring platform that lets educators cre
 | **Auth** | JWT (bcrypt + python-jose) |
 | **Database** | SQLModel + SQLite (zero-ops, file-based) |
 | **Reports** | ReportLab (PDF generation) |
-| **Deploy** | Render (single service, frontend + backend) |
+| **Deploy** | HuggingFace (single service, frontend + backend) |
 
 ---
 
